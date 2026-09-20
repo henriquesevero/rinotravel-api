@@ -4,17 +4,22 @@ API do RinoTravel, uma plataforma pessoal de gerenciamento de viagens. Backend 1
 
 ## Status
 
-Fases 1 a 3 concluídas: fundação (config, servidor, logging, erros, CORS, Mongo, health), autenticação (cadastro com código de convite, login, sessão, `/me`) e viagens com membros e permissões.
+Fases 1 a 10 concluídas no backend: fundação, autenticação, viagens com membros, roteiro, sync offline-first, lugares e restaurantes, voos e hotéis, transfers, documentos (MongoDB GridFS) e adaptadores do Google.
 
 | Fase | Escopo | Estado |
 | --- | --- | --- |
 | 1 | Esqueleto: config, servidor, health, logging, erros, conexão Mongo | pronta |
 | 2 | User e autenticação | pronta |
 | 3 | Trip e membros, permissões, base sync-ready | pronta |
-| 4 | Roteiro (dias, itens, timeline) | próxima |
-| 5 a 10 | Sync, places, voos e hotéis, transfers, documentos, Google | planejadas |
+| 4 | Roteiro (dias, itens, timeline unificada) | pronta |
+| 5 | Sync: pull por cursor, push de mutations, idempotência, conflitos | pronta |
+| 6 | Places e restaurantes | pronta |
+| 7 | Voos e hotéis | pronta |
+| 8 | Transfers com etapas | pronta |
+| 9 | Documentos, armazenados no próprio MongoDB (GridFS) | pronta |
+| 10 | Google Places e Routes atrás de ports (opcional) | pronta |
 
-O plano completo, com as decisões de cada fase, está em [docs/ROADMAP.md](docs/ROADMAP.md).
+O plano completo, com as decisões de cada fase, está em [docs/ROADMAP.md](docs/ROADMAP.md). O contrato HTTP está em [docs/openapi.yaml](docs/openapi.yaml).
 
 ## Arquitetura
 
@@ -152,10 +157,37 @@ Toda viagem tem uma `version`. O `PATCH` exige o `baseVersion` que o cliente viu
 
 Cada escrita recebe um número de sequência (`seq`) por viagem, alocado dentro da mesma transação que grava o dado. Como todas as escritas de uma viagem passam pelo mesmo contador, elas se serializam e a ordem de commit é a ordem de `seq`, o que permite ao cliente usar `seq` como cursor sem perder mudanças. O protocolo completo está em [docs/ROADMAP.md](docs/ROADMAP.md).
 
+## Roteiro, reservas e demais domínios
+
+Cada domínio segue o mesmo formato (entidades e use cases no pacote raiz, `httpapi/` e `mongorepo/`) e é montado em `internal/app`.
+
+| Domínio | Rotas principais |
+| --- | --- |
+| Roteiro | `itinerary-days`, `itinerary-items`, `itinerary-items/from-place`, `GET itinerary` (timeline unificada) |
+| Lugares | `places`, `restaurants`, `GET /places/search` (só com chave do Google) |
+| Reservas | `flights`, `hotels` (duração do voo e fusos derivados no servidor) |
+| Transfers | `transfers`, `transfers/plan` (só com chave do Google) |
+| Documentos | `documents`, `documents/{id}/complete`, `documents/{id}/download` |
+| Sync | `GET` e `POST /trips/{id}/sync` |
+
+Todas as rotas de conteúdo ficam sob `/api/v1/trips/{tripId}/...`, exigem membership (404 para quem não é membro) e seguem a matriz de papéis. Os horários trafegam como `{dateTime, timezone}` (hora local e fuso IANA); o instante absoluto é sempre derivado, nunca gravado. Valores em dinheiro usam a menor unidade da moeda (centavos, ienes inteiros).
+
+### Sync offline-first
+
+`GET /trips/{id}/sync?cursor=` devolve as mudanças da viagem em ordem, inclusive exclusões, com um cursor opaco. `POST` aplica mutations feitas offline, uma por vez, pelos mesmos use cases da API REST, e responde um resultado por mutation (`applied`, `duplicate`, `conflict` ou `rejected`). Reenviar o mesmo `mutationId` é seguro. Conflitos são detectados por versão (`baseVersion`) e nunca sobrescrevem em silêncio. O protocolo completo está na seção 5 do [ROADMAP](docs/ROADMAP.md).
+
+### Documentos e armazenamento
+
+Os arquivos ficam no **MongoDB (GridFS)**, sem nenhum serviço externo de armazenamento. O upload tem três passos: `POST documents` registra o documento como `PENDING` e devolve um link assinado; o cliente envia os bytes com `PUT` nesse link; `POST documents/{id}/complete` confere tamanho e SHA-256 e passa o documento para `READY`. O download devolve um link assinado de curta duração. Os links são HMAC-SHA256 com expiração, operação, tamanho e checksum embutidos, e a autorização é o próprio token. Limites: 25 MB por arquivo e PDF, JPEG, PNG, WebP ou HEIC.
+
+### Google (opcional)
+
+Sem `GOOGLE_MAPS_API_KEY` a API sobe normalmente e as rotas do Google simplesmente não existem; o cadastro manual continua funcionando. Com a chave, ative no Google Cloud a **Places API (New)** e a **Routes API**, crie uma chave de servidor e restrinja-a a essas duas APIs. A chave nunca vai para o frontend.
+
 ## Stack
 
 - Go 1.26+ (`net/http` com `ServeMux`, `log/slog`)
-- MongoDB Atlas e o [driver oficial v2](https://pkg.go.dev/go.mongodb.org/mongo-driver/v2)
+- MongoDB Atlas (dados e arquivos, via GridFS) e o [driver oficial v2](https://pkg.go.dev/go.mongodb.org/mongo-driver/v2)
 - golangci-lint 2.x
 
 ## Setup
@@ -186,6 +218,9 @@ Os arquivos `.env` são carregados pelo shell: mantenha as aspas em valores com 
 | `CORS_ALLOWED_ORIGINS` | não | vazio | origens permitidas, separadas por vírgula |
 | `AUTH_RATE_LIMIT` | não | `10` | requisições por minuto, por IP, em `register` e `login` |
 | `TRUST_PROXY` | não | `false` | `true` quando há um proxy reverso confiável na frente (usa o último `X-Forwarded-For`) |
+| `STORAGE_SIGNING_SECRET` | não | vazio | segredo (mínimo de 32 caracteres) que assina os links de documentos. Vazio desliga os documentos |
+| `API_PUBLIC_URL` | com o segredo acima | | URL pela qual os clientes alcançam esta API; entra nos links assinados |
+| `GOOGLE_MAPS_API_KEY` | não | vazio | chave de servidor (Places API New e Routes API). Vazio desliga a busca de lugares e o cálculo de rotas |
 
 A aplicação não sobe se alguma variável obrigatória estiver ausente ou inválida, e lista todos os problemas de uma vez. O `.env` está no `.gitignore`: nunca commite credenciais. Em staging e production, configure as variáveis no provedor de deploy.
 
@@ -220,3 +255,14 @@ make check    # gofmt, vet, lint, testes e build
 make build                         # bin/api
 docker build -t rinotravel-api .   # imagem distroless, roda como não-root
 ```
+
+## Deploy (Railway)
+
+O backend roda como container (o `Dockerfile` já produz uma imagem distroless). No Railway:
+
+1. Crie o serviço a partir deste repositório; o Railway detecta o `Dockerfile`.
+2. Configure as variáveis: `APP_ENV=production`, `MONGODB_URI` (Atlas), `MONGODB_DATABASE`, `REGISTRATION_CODE`, `TRUST_PROXY=true`, `CORS_ALLOWED_ORIGINS=https://<seu-app>.vercel.app`, `STORAGE_SIGNING_SECRET`, `API_PUBLIC_URL=https://<seu-servico>.up.railway.app` e, se quiser, `GOOGLE_MAPS_API_KEY`. O Railway define `PORT` sozinho.
+3. Use `/api/v1/health` como healthcheck.
+4. No Atlas, libere o acesso de rede do Railway e mantenha o cluster como replica set (o Atlas já é).
+
+Os índices (TTL, únicos e parciais) são criados na inicialização.

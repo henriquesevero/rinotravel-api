@@ -2,9 +2,9 @@ openapi: 3.1.0
 
 info:
   title: RinoTravel API
-  version: 0.3.0
+  version: 1.0.0
   description: |
-    API do RinoTravel. Fases implementadas: fundação, autenticação e viagens com membros.
+    API do RinoTravel. Fases implementadas: fundação, autenticação, viagens com membros, roteiro, lugares e restaurantes, voos e hotéis, transfers, documentos, sync offline-first e adaptadores Google.
 
     Erros usam `application/problem+json` (RFC 9457). O campo `code` é estável e pensado para o cliente traduzir a mensagem.
     Quem não é membro de uma viagem recebe sempre `404 trip_not_found`, idêntico ao de uma viagem inexistente.
@@ -22,6 +22,18 @@ tags:
     description: Viagens das quais o usuário é membro.
   - name: Members
     description: Membros de uma viagem e seus papéis.
+  - name: Itinerary
+    description: Dias, itens e a linha do tempo unificada do roteiro.
+  - name: Places
+    description: Lista de desejos de lugares e restaurantes, e a busca no Google Places.
+  - name: Bookings
+    description: Voos e hospedagens.
+  - name: Transfers
+    description: Deslocamentos em etapas e o planejamento de rotas.
+  - name: Documents
+    description: Arquivos da viagem, armazenados no MongoDB (GridFS) e entregues por link assinado.
+  - name: Sync
+    description: Protocolo de sincronização offline-first (pull por cursor, push de mutações).
 
 security:
   - bearerAuth: []
@@ -379,6 +391,1347 @@ paths:
         '422':
           $ref: '#/components/responses/Unprocessable'
 
+  /api/v1/trips/{tripId}/itinerary-days:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Itinerary]
+      operationId: listItineraryDays
+      summary: Lista os dias do roteiro
+      responses:
+        '200':
+          description: Lista de os dias do roteiro.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ItineraryDay'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Itinerary]
+      operationId: createItineraryDay
+      summary: Cria os dias do roteiro (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItineraryDayCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDay'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/itinerary-days/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Itinerary]
+      operationId: getItineraryDay
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDay'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Itinerary]
+      operationId: updateItineraryDay
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItineraryDayPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDay'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Itinerary]
+      operationId: deleteItineraryDay
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/itinerary-items:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Itinerary]
+      operationId: listItineraryItems
+      summary: Lista os itens do roteiro
+      responses:
+        '200':
+          description: Lista de os itens do roteiro.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ItineraryItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Itinerary]
+      operationId: createItineraryItem
+      summary: Cria os itens do roteiro (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItineraryItemCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/itinerary-items/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Itinerary]
+      operationId: getItineraryItem
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Itinerary]
+      operationId: updateItineraryItem
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItineraryItemPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Itinerary]
+      operationId: deleteItineraryItem
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/itinerary-items/from-place:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    post:
+      tags: [Itinerary]
+      operationId: scheduleItemFromPlace
+      summary: Agenda um lugar da lista de desejos como item do roteiro
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleFromPlaceRequest'
+      responses:
+        '201':
+          description: Item criado a partir do lugar.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/itinerary:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Itinerary]
+      operationId: getItinerary
+      summary: Linha do tempo unificada por dia (itens, voos, hotéis, transfers e reservas), com horários locais
+      responses:
+        '200':
+          description: Dias em ordem cronológica.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Itinerary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/trips/{tripId}/places:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Places]
+      operationId: listPlaces
+      summary: Lista os lugares (lista de desejos)
+      responses:
+        '200':
+          description: Lista de os lugares (lista de desejos).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Place'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Places]
+      operationId: createPlace
+      summary: Cria os lugares (lista de desejos) (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Place'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/places/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Places]
+      operationId: getPlace
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Place'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Places]
+      operationId: updatePlace
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlacePatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Place'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Places]
+      operationId: deletePlace
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/restaurants:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Places]
+      operationId: listRestaurants
+      summary: Lista os restaurantes
+      responses:
+        '200':
+          description: Lista de os restaurantes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Restaurant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Places]
+      operationId: createRestaurant
+      summary: Cria os restaurante (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestaurantCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restaurant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/restaurants/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Places]
+      operationId: getRestaurant
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restaurant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Places]
+      operationId: updateRestaurant
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestaurantPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restaurant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Places]
+      operationId: deleteRestaurant
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/places/search:
+    get:
+      tags: [Places]
+      operationId: searchPlaces
+      summary: Busca lugares no Google Places. Só existe quando o servidor tem GOOGLE_MAPS_API_KEY
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: lat
+          in: query
+          schema:
+            type: number
+        - name: lng
+          in: query
+          schema:
+            type: number
+        - name: language
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Candidatos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlaceCandidate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/Unavailable'
+
+  /api/v1/trips/{tripId}/flights:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Bookings]
+      operationId: listFlights
+      summary: Lista os voos
+      responses:
+        '200':
+          description: Lista de os voos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Flight'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Bookings]
+      operationId: createFlight
+      summary: Cria os voo (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlightCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Flight'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/flights/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Bookings]
+      operationId: getFlight
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Flight'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Bookings]
+      operationId: updateFlight
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlightPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Flight'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Bookings]
+      operationId: deleteFlight
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/hotels:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Bookings]
+      operationId: listHotels
+      summary: Lista as hospedagens
+      responses:
+        '200':
+          description: Lista de as hospedagens.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Hotel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Bookings]
+      operationId: createHotel
+      summary: Cria as hospedagen (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HotelCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hotel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/hotels/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Bookings]
+      operationId: getHotel
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hotel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Bookings]
+      operationId: updateHotel
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HotelPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hotel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Bookings]
+      operationId: deleteHotel
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/transfers:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Transfers]
+      operationId: listTransfers
+      summary: Lista os deslocamentos
+      responses:
+        '200':
+          description: Lista de os deslocamentos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transfer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Transfers]
+      operationId: createTransfer
+      summary: Cria os deslocamento (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/transfers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Transfers]
+      operationId: getTransfer
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Transfers]
+      operationId: updateTransfer
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Transfers]
+      operationId: deleteTransfer
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/transfers/plan:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    post:
+      tags: [Transfers]
+      operationId: planTransfer
+      summary: Pede rotas ao Google Routes. Cada opção tem o formato de um create, para o cliente escolher e enviar sem alterar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanTransferRequest'
+      responses:
+        '200':
+          description: Opções de rota.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [routes]
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RouteOption'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '502':
+          $ref: '#/components/responses/Unavailable'
+
+  /api/v1/trips/{tripId}/documents:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Documents]
+      operationId: listDocuments
+      summary: Lista os documentos visíveis ao usuário (privados só aparecem ao dono)
+      responses:
+        '200':
+          description: Metadados; o conteúdo se baixa por link assinado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Documents]
+      operationId: initDocumentUpload
+      summary: Registra um documento PENDING e devolve o link assinado para enviar o arquivo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitDocumentRequest'
+      responses:
+        '201':
+          description: Documento pendente e requisição de upload.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [document, upload]
+                properties:
+                  document:
+                    $ref: '#/components/schemas/Document'
+                  upload:
+                    $ref: '#/components/schemas/SignedRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/documents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Documents]
+      operationId: getDocument
+      summary: Metadados do documento
+      responses:
+        '200':
+          description: O documento.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Documents]
+      operationId: updateDocument
+      summary: Renomeia, muda tipo, visibilidade ou vínculo. Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Documents]
+      operationId: deleteDocument
+      summary: Remove o documento e apaga o arquivo
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/trips/{tripId}/documents/{id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Documents]
+      operationId: completeDocumentUpload
+      summary: Confirma o upload. O servidor confere tamanho e SHA-256 antes de marcar como READY
+      responses:
+        '200':
+          description: Documento READY.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/documents/{id}/download:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Documents]
+      operationId: downloadDocument
+      summary: Devolve um link assinado e de curta duração para baixar o arquivo
+      responses:
+        '200':
+          description: Link de download.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [document, download]
+                properties:
+                  document:
+                    $ref: '#/components/schemas/Document'
+                  download:
+                    $ref: '#/components/schemas/SignedRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/storage/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags: [Documents]
+      operationId: uploadDocumentContent
+      summary: Recebe o arquivo (corpo binário). A autorização é o próprio token assinado, sem bearer
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '204':
+          description: Arquivo armazenado.
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    get:
+      tags: [Documents]
+      operationId: downloadDocumentContent
+      summary: Entrega o arquivo. A autorização é o próprio token assinado, sem bearer
+      security: []
+      responses:
+        '200':
+          description: Conteúdo do arquivo.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/trips/{tripId}/sync:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Sync]
+      operationId: pullChanges
+      summary: Mudanças da viagem desde o cursor (ausente = carga inicial), incluindo tombstones
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Cursor opaco devolvido pela chamada anterior.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Página de mudanças.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PullResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Sync]
+      operationId: pushMutations
+      summary: Aplica mutações feitas offline. Cada uma tem resultado próprio e reenviar o mesmo mutationId é seguro
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [mutations]
+              properties:
+                mutations:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Mutation'
+      responses:
+        '200':
+          description: Um resultado por mutação, na mesma ordem.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MutationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -389,6 +1742,13 @@ components:
   parameters:
     TripId:
       name: tripId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ResourceId:
+      name: id
       in: path
       required: true
       schema:
@@ -466,6 +1826,13 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
 
+    Unavailable:
+      description: O provedor externo (Google) está indisponível ou não respondeu a tempo.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
   schemas:
     ErrorCode:
       type: string
@@ -494,6 +1861,30 @@ components:
         - owner_locked
         - owner_assignment
         - already_owner
+        - base_version_required
+        - day_exists
+        - day_not_empty
+        - document_not_found
+        - entity_deleted
+        - invalid_cursor
+        - invalid_lat
+        - invalid_lng
+        - invalid_limit
+        - invalid_link
+        - invalid_mutation
+        - invalid_payload
+        - item_not_found
+        - link_expired
+        - mutation_id_reused
+        - object_not_found
+        - place_not_found
+        - provider_unavailable
+        - size_mismatch
+        - too_many_mutations
+        - unknown_entity
+        - unsupported_operation
+        - upload_mismatch
+        - upload_missing
 
     Problem:
       type: object
@@ -777,3 +2168,1113 @@ components:
       properties:
         role:
           $ref: '#/components/schemas/AssignableRole'
+
+    ZonedTime:
+      type: object
+      description: Data e hora locais no fuso informado. O instante absoluto é derivado dos dois campos.
+      additionalProperties: false
+      required: [dateTime, timezone]
+      properties:
+        dateTime:
+          type: string
+          example: '2027-04-10T09:30:00'
+        timezone:
+          type: string
+          description: Nome IANA do fuso.
+          example: Asia/Tokyo
+
+    Location:
+      type: object
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    Money:
+      type: object
+      description: Valor em unidades menores da moeda (centavos) e código ISO 4217.
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          example: JPY
+
+    ResourceMeta:
+      type: object
+      required: [id, tripId, version, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tripId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          description: Enviada de volta como `baseVersion` para edições.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    BaseVersion:
+      type: object
+      required: [baseVersion]
+      properties:
+        baseVersion:
+          type: integer
+          format: int64
+
+    PlanStatus:
+      type: string
+      description: Estado de um item planejado.
+      enum: [PLANNED, CONFIRMED, COMPLETED, SKIPPED]
+
+    ItineraryCategory:
+      type: string
+      description: Categoria de um item do roteiro.
+      enum: [RESTAURANT, ATTRACTION, SHOPPING, FREE_TIME, OTHER]
+
+    PlaceCategory:
+      type: string
+      description: Categoria de um lugar.
+      enum: [ATTRACTION, RESTAURANT, SHOPPING, OTHER]
+
+    Priority:
+      type: string
+      description: Prioridade na lista de desejos.
+      enum: [HIGH, MEDIUM, LOW]
+
+    RestaurantStatus:
+      type: string
+      description: Estado de um restaurante.
+      enum: [WISHLIST, PLANNED, RESERVED, VISITED]
+
+    TransferMode:
+      type: string
+      description: Meio de transporte.
+      enum: [WALKING, SUBWAY, TRAIN, BUS, TAXI, RIDESHARE, CAR, OTHER]
+
+    DocumentType:
+      type: string
+      description: Tipo de documento.
+      enum: [TICKET, RESERVATION, BOARDING_PASS, HOTEL, INSURANCE, RECEIPT, PASSPORT, OTHER]
+
+    DocumentStatus:
+      type: string
+      description: PENDING até o upload ser confirmado; depois READY.
+      enum: [PENDING, READY]
+
+    DocumentVisibility:
+      type: string
+      description: TRIP é visível a todos os membros; PRIVATE só ao dono.
+      enum: [TRIP, PRIVATE]
+
+    ItineraryDay:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [date]
+          properties:
+            date:
+              type: string
+              format: date
+            title:
+              type: string
+            notes:
+              type: string
+
+    ItineraryDayCreate:
+      type: object
+      additionalProperties: false
+      required: [date]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        date:
+          type: string
+          format: date
+        title:
+          type: string
+        notes:
+          type: string
+
+    ItineraryDayPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            title:
+              type: string
+            notes:
+              type: string
+
+    ItineraryItem:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [dayId, title, category, status, position]
+          properties:
+            dayId:
+              type: string
+              format: uuid
+            title:
+              type: string
+            description:
+              type: string
+            category:
+              $ref: '#/components/schemas/ItineraryCategory'
+            status:
+              $ref: '#/components/schemas/PlanStatus'
+            start:
+              $ref: '#/components/schemas/ZonedTime'
+            end:
+              $ref: '#/components/schemas/ZonedTime'
+            location:
+              $ref: '#/components/schemas/Location'
+            estimatedDurationMinutes:
+              type: integer
+            durationMinutes:
+              type: integer
+              description: Derivado. O intervalo entre início e fim; sem fim, a estimativa.
+            estimatedCost:
+              $ref: '#/components/schemas/Money'
+            notes:
+              type: string
+            position:
+              type: integer
+            placeId:
+              type: string
+
+    ItineraryItemCreate:
+      type: object
+      additionalProperties: false
+      required: [dayId, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        dayId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/ItineraryCategory'
+        status:
+          $ref: '#/components/schemas/PlanStatus'
+        notes:
+          type: string
+        placeId:
+          type: string
+        position:
+          type: integer
+        start:
+          oneOf:
+            - $ref: '#/components/schemas/ZonedTime'
+            - type: 'null'
+        end:
+          oneOf:
+            - $ref: '#/components/schemas/ZonedTime'
+            - type: 'null'
+        location:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        estimatedDurationMinutes:
+          oneOf:
+            - type: integer
+            - type: 'null'
+        estimatedCost:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+
+    ItineraryItemPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            dayId:
+              type: string
+              format: uuid
+            title:
+              type: string
+            description:
+              type: string
+            category:
+              $ref: '#/components/schemas/ItineraryCategory'
+            status:
+              $ref: '#/components/schemas/PlanStatus'
+            notes:
+              type: string
+            placeId:
+              type: string
+            position:
+              type: integer
+            start:
+              oneOf:
+                - $ref: '#/components/schemas/ZonedTime'
+                - type: 'null'
+            end:
+              oneOf:
+                - $ref: '#/components/schemas/ZonedTime'
+                - type: 'null'
+            location:
+              oneOf:
+                - $ref: '#/components/schemas/Location'
+                - type: 'null'
+            estimatedDurationMinutes:
+              oneOf:
+                - type: integer
+                - type: 'null'
+            estimatedCost:
+              oneOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
+
+    ScheduleFromPlaceRequest:
+      type: object
+      additionalProperties: false
+      required: [placeId, dayId]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        placeId:
+          type: string
+          format: uuid
+        dayId:
+          type: string
+          format: uuid
+        start:
+          oneOf:
+            - $ref: '#/components/schemas/ZonedTime'
+            - type: 'null'
+        end:
+          oneOf:
+            - $ref: '#/components/schemas/ZonedTime'
+            - type: 'null'
+        position:
+          type: integer
+
+    TimelineEntry:
+      type: object
+      required: [kind, id, title]
+      properties:
+        kind:
+          type: string
+          description: Origem da entrada.
+          enum: [itinerary_item, flight_departure, flight_arrival, hotel_check_in, hotel_check_out, transfer, restaurant_reservation]
+        id:
+          type: string
+          description: Id do registro de origem.
+        title:
+          type: string
+        subtitle:
+          type: string
+        status:
+          type: string
+        start:
+          $ref: '#/components/schemas/ZonedTime'
+        end:
+          $ref: '#/components/schemas/ZonedTime'
+
+    Itinerary:
+      type: object
+      required: [days]
+      properties:
+        days:
+          type: array
+          items:
+            type: object
+            required: [date, day, entries]
+            properties:
+              date:
+                type: string
+                format: date
+              day:
+                oneOf:
+                  - $ref: '#/components/schemas/ItineraryDay'
+                  - type: 'null'
+                description: Nulo quando a data só tem entradas de voos, hotéis ou transfers.
+              entries:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimelineEntry'
+
+    Place:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [name, category, priority]
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+            category:
+              $ref: '#/components/schemas/PlaceCategory'
+            priority:
+              $ref: '#/components/schemas/Priority'
+            location:
+              $ref: '#/components/schemas/Location'
+            estimatedDurationMinutes:
+              type: integer
+            estimatedCost:
+              $ref: '#/components/schemas/Money'
+            notes:
+              type: string
+            externalId:
+              type: string
+              description: Id do lugar no provedor (Google Places), quando veio de uma busca.
+
+    PlaceCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/PlaceCategory'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        notes:
+          type: string
+        externalId:
+          type: string
+        location:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        estimatedDurationMinutes:
+          oneOf:
+            - type: integer
+            - type: 'null'
+        estimatedCost:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+
+    PlacePatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+            category:
+              $ref: '#/components/schemas/PlaceCategory'
+            priority:
+              $ref: '#/components/schemas/Priority'
+            notes:
+              type: string
+            externalId:
+              type: string
+            location:
+              oneOf:
+                - $ref: '#/components/schemas/Location'
+                - type: 'null'
+            estimatedDurationMinutes:
+              oneOf:
+                - type: integer
+                - type: 'null'
+            estimatedCost:
+              oneOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
+
+    Restaurant:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [name, status, desiredDishes]
+          properties:
+            name:
+              type: string
+            cuisine:
+              type: string
+            status:
+              $ref: '#/components/schemas/RestaurantStatus'
+            location:
+              $ref: '#/components/schemas/Location'
+            estimatedCost:
+              $ref: '#/components/schemas/Money'
+            reservationAt:
+              $ref: '#/components/schemas/ZonedTime'
+            reservationCode:
+              type: string
+              description: Omitido para VIEWER.
+            desiredDishes:
+              type: array
+              items:
+                type: string
+            notes:
+              type: string
+            externalId:
+              type: string
+
+    RestaurantCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        name:
+          type: string
+        cuisine:
+          type: string
+        notes:
+          type: string
+        status:
+          $ref: '#/components/schemas/RestaurantStatus'
+        externalId:
+          type: string
+        reservationCode:
+          type: string
+        desiredDishes:
+          type: array
+          items:
+            type: string
+        location:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        estimatedCost:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        reservationAt:
+          oneOf:
+            - $ref: '#/components/schemas/ZonedTime'
+            - type: 'null'
+
+    RestaurantPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            cuisine:
+              type: string
+            notes:
+              type: string
+            status:
+              $ref: '#/components/schemas/RestaurantStatus'
+            externalId:
+              type: string
+            reservationCode:
+              type: string
+            desiredDishes:
+              type: array
+              items:
+                type: string
+            location:
+              oneOf:
+                - $ref: '#/components/schemas/Location'
+                - type: 'null'
+            estimatedCost:
+              oneOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
+            reservationAt:
+              oneOf:
+                - $ref: '#/components/schemas/ZonedTime'
+                - type: 'null'
+
+    PlaceCandidate:
+      type: object
+      required: [providerId, name, types]
+      properties:
+        providerId:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        types:
+          type: array
+          items:
+            type: string
+
+    Flight:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [flightNumber, departureAirport, arrivalAirport, departure, arrival, durationMinutes]
+          properties:
+            airline:
+              type: string
+            flightNumber:
+              type: string
+            departureAirport:
+              type: string
+              description: Código IATA.
+            arrivalAirport:
+              type: string
+            departure:
+              $ref: '#/components/schemas/ZonedTime'
+            arrival:
+              $ref: '#/components/schemas/ZonedTime'
+            durationMinutes:
+              type: integer
+              description: Derivado dos dois horários, respeitando os fusos.
+            terminal:
+              type: string
+            gate:
+              type: string
+            seat:
+              type: string
+            baggage:
+              type: string
+            bookingCode:
+              type: string
+              description: Omitido para VIEWER.
+            notes:
+              type: string
+
+    FlightCreate:
+      type: object
+      additionalProperties: false
+      required: [flightNumber, departureAirport, arrivalAirport, departure, arrival]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        airline:
+          type: string
+        flightNumber:
+          type: string
+        departureAirport:
+          type: string
+        arrivalAirport:
+          type: string
+        departure:
+          $ref: '#/components/schemas/ZonedTime'
+        arrival:
+          $ref: '#/components/schemas/ZonedTime'
+        terminal:
+          type: string
+        gate:
+          type: string
+        seat:
+          type: string
+        baggage:
+          type: string
+        bookingCode:
+          type: string
+        notes:
+          type: string
+
+    FlightPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            airline:
+              type: string
+            flightNumber:
+              type: string
+            departureAirport:
+              type: string
+            arrivalAirport:
+              type: string
+            departure:
+              $ref: '#/components/schemas/ZonedTime'
+            arrival:
+              $ref: '#/components/schemas/ZonedTime'
+            terminal:
+              type: string
+            gate:
+              type: string
+            seat:
+              type: string
+            baggage:
+              type: string
+            bookingCode:
+              type: string
+            notes:
+              type: string
+
+    Hotel:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [name, checkIn, checkOut]
+          properties:
+            name:
+              type: string
+            location:
+              $ref: '#/components/schemas/Location'
+            checkIn:
+              $ref: '#/components/schemas/ZonedTime'
+            checkOut:
+              $ref: '#/components/schemas/ZonedTime'
+            confirmationCode:
+              type: string
+              description: Omitido para VIEWER.
+            contactPhone:
+              type: string
+            bookingUrl:
+              type: string
+            notes:
+              type: string
+
+    HotelCreate:
+      type: object
+      additionalProperties: false
+      required: [name, checkIn, checkOut]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        name:
+          type: string
+        location:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        checkIn:
+          $ref: '#/components/schemas/ZonedTime'
+        checkOut:
+          $ref: '#/components/schemas/ZonedTime'
+        confirmationCode:
+          type: string
+        contactPhone:
+          type: string
+        bookingUrl:
+          type: string
+        notes:
+          type: string
+
+    HotelPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            location:
+              oneOf:
+                - $ref: '#/components/schemas/Location'
+                - type: 'null'
+            checkIn:
+              $ref: '#/components/schemas/ZonedTime'
+            checkOut:
+              $ref: '#/components/schemas/ZonedTime'
+            confirmationCode:
+              type: string
+            contactPhone:
+              type: string
+            bookingUrl:
+              type: string
+            notes:
+              type: string
+
+    TransferLegInput:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          $ref: '#/components/schemas/TransferMode'
+        origin:
+          $ref: '#/components/schemas/Location'
+        destination:
+          $ref: '#/components/schemas/Location'
+        departure:
+          $ref: '#/components/schemas/ZonedTime'
+        arrival:
+          $ref: '#/components/schemas/ZonedTime'
+        estimatedDurationMinutes:
+          type: integer
+        line:
+          type: string
+        direction:
+          type: string
+        stops:
+          type: integer
+        instructions:
+          type: string
+        cost:
+          $ref: '#/components/schemas/Money'
+
+    TransferLeg:
+      allOf:
+        - $ref: '#/components/schemas/TransferLegInput'
+        - type: object
+          properties:
+            durationMinutes:
+              type: integer
+              description: Derivado dos horários quando ambos existem; senão, a estimativa.
+
+    Transfer:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [status, legs]
+          properties:
+            origin:
+              $ref: '#/components/schemas/Location'
+            destination:
+              $ref: '#/components/schemas/Location'
+            status:
+              $ref: '#/components/schemas/PlanStatus'
+            routeProvider:
+              type: string
+            externalRouteId:
+              type: string
+            notes:
+              type: string
+            legs:
+              type: array
+              items:
+                $ref: '#/components/schemas/TransferLeg'
+            departure:
+              $ref: '#/components/schemas/ZonedTime'
+            arrival:
+              $ref: '#/components/schemas/ZonedTime'
+            durationMinutes:
+              type: integer
+            totalCost:
+              $ref: '#/components/schemas/Money'
+
+    TransferCreate:
+      type: object
+      additionalProperties: false
+      required: [origin, destination, legs]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        origin:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        destination:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        status:
+          $ref: '#/components/schemas/PlanStatus'
+        routeProvider:
+          type: string
+        externalRouteId:
+          type: string
+        notes:
+          type: string
+        legs:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransferLegInput'
+
+    TransferPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            origin:
+              oneOf:
+                - $ref: '#/components/schemas/Location'
+                - type: 'null'
+            destination:
+              oneOf:
+                - $ref: '#/components/schemas/Location'
+                - type: 'null'
+            status:
+              $ref: '#/components/schemas/PlanStatus'
+            routeProvider:
+              type: string
+            externalRouteId:
+              type: string
+            notes:
+              type: string
+            legs:
+              type: array
+              items:
+                $ref: '#/components/schemas/TransferLegInput'
+
+    PlanTransferRequest:
+      type: object
+      additionalProperties: false
+      required: [origin, destination]
+      properties:
+        origin:
+          $ref: '#/components/schemas/Location'
+        destination:
+          $ref: '#/components/schemas/Location'
+        mode:
+          $ref: '#/components/schemas/TransferMode'
+        departureAt:
+          $ref: '#/components/schemas/ZonedTime'
+        language:
+          type: string
+
+    RouteOption:
+      type: object
+      required: [durationMinutes, distanceMeters, transfer]
+      properties:
+        durationMinutes:
+          type: integer
+        distanceMeters:
+          type: integer
+        transfer:
+          type: object
+          description: Corpo pronto para `POST /transfers` (sem `id`).
+          required: [routeProvider, legs]
+          properties:
+            origin:
+              $ref: '#/components/schemas/Location'
+            destination:
+              $ref: '#/components/schemas/Location'
+            routeProvider:
+              type: string
+            externalRouteId:
+              type: string
+            legs:
+              type: array
+              items:
+                $ref: '#/components/schemas/TransferLegInput'
+
+    DocumentLink:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          description: Tipo do registro vinculado (por exemplo flight, hotel, restaurant, itinerary_item).
+        id:
+          type: string
+          format: uuid
+
+    Document:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [ownerId, name, type, fileName, mimeType, size, checksum, status, visibility]
+          properties:
+            ownerId:
+              type: string
+              format: uuid
+            name:
+              type: string
+            type:
+              $ref: '#/components/schemas/DocumentType'
+            fileName:
+              type: string
+            mimeType:
+              type: string
+            size:
+              type: integer
+              format: int64
+            checksum:
+              type: string
+              description: SHA-256 em hexadecimal. Serve para o cliente saber se sua cópia offline está atual.
+            status:
+              $ref: '#/components/schemas/DocumentStatus'
+            visibility:
+              $ref: '#/components/schemas/DocumentVisibility'
+            link:
+              $ref: '#/components/schemas/DocumentLink'
+
+    InitDocumentRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type, fileName, mimeType, size, checksum]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/DocumentType'
+        fileName:
+          type: string
+        mimeType:
+          type: string
+        size:
+          type: integer
+          format: int64
+        checksum:
+          type: string
+          description: SHA-256 do arquivo em hexadecimal.
+        visibility:
+          $ref: '#/components/schemas/DocumentVisibility'
+        link:
+          $ref: '#/components/schemas/DocumentLink'
+
+    DocumentPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          properties:
+            name:
+              type: string
+            type:
+              $ref: '#/components/schemas/DocumentType'
+            visibility:
+              $ref: '#/components/schemas/DocumentVisibility'
+            link:
+              oneOf:
+                - $ref: '#/components/schemas/DocumentLink'
+                - type: 'null'
+
+    SignedRequest:
+      type: object
+      description: Requisição que o cliente executa como está. A URL já carrega a autorização.
+      required: [url, method, expiresAt]
+      properties:
+        url:
+          type: string
+        method:
+          type: string
+          enum: [GET, PUT]
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    SyncEntity:
+      type: string
+      enum: [trip, itinerary_day, itinerary_item, place, restaurant, flight, hotel, transfer, document]
+
+    SyncChange:
+      type: object
+      required: [entity, id, op, version]
+      properties:
+        entity:
+          $ref: '#/components/schemas/SyncEntity'
+        id:
+          type: string
+          format: uuid
+        op:
+          type: string
+          enum: [upsert, delete]
+        version:
+          type: integer
+          format: int64
+        record:
+          type: object
+          description: Registro completo no mesmo formato da API REST. Ausente em `delete`.
+          additionalProperties: true
+
+    PullResult:
+      type: object
+      required: [changes, cursor, hasMore, resetRequired, serverTime]
+      properties:
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncChange'
+        cursor:
+          type: string
+          description: Guarde e envie na próxima chamada.
+        hasMore:
+          type: boolean
+          description: Verdadeiro quando há mais páginas; chame de novo com o novo cursor.
+        resetRequired:
+          type: boolean
+          description: O cursor é antigo demais (tombstones já removidos). Descarte o cache da viagem e recarregue sem cursor.
+        serverTime:
+          type: string
+          format: date-time
+
+    Mutation:
+      type: object
+      additionalProperties: false
+      required: [mutationId, entity, entityId, operation]
+      properties:
+        mutationId:
+          type: string
+          format: uuid
+          description: Chave de idempotência. Reusar o id com outro conteúdo é rejeitado.
+        entity:
+          $ref: '#/components/schemas/SyncEntity'
+        entityId:
+          type: string
+          format: uuid
+        operation:
+          type: string
+          enum: [CREATE, UPDATE, DELETE]
+        baseVersion:
+          type: integer
+          format: int64
+          description: Obrigatório em UPDATE e DELETE.
+        clientTimestamp:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
+          description: Mesmo corpo do create ou patch REST da entidade.
+
+    MutationResult:
+      type: object
+      required: [mutationId, status]
+      properties:
+        mutationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [applied, duplicate, conflict, rejected]
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+        version:
+          type: integer
+          format: int64
+        record:
+          type: object
+          additionalProperties: true
+          description: Em `conflict`, a versão atual do servidor para o cliente resolver.

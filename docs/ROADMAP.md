@@ -23,7 +23,7 @@ Documento único que resume as decisões e as fases planejadas. Consolida os tr�
 | IDs | tipo próprio no domínio (UUIDv7 em string), sem `bson.ObjectID`; o cliente pode gerar o ID (offline) |
 | Erros | `apperror` + RFC 9457; 400 malformado, 422 regra violada, 404 para não-membro |
 | Concorrência | `Version` em toda entidade mutável; escrita condicional; conflito devolve 409 |
-| Local dev | Docker Compose com Mongo. **Replica set de um nó** desde a fase 3 (transações, ver seção 5); um Mongo standalone é recusado no boot |
+| Local dev | Docker Compose com Mongo. **Replica set de um nó** desde a fase 3 (transações, ver seção 5); um Mongo standalone é recusado no boot. Sem MinIO nem AWS: os arquivos ficam no próprio Mongo (GridFS) |
 
 ### Matriz de permissões
 
@@ -46,13 +46,13 @@ Não-membro recebe 404. A regra vive numa política pura do domínio (`Can(role,
 | --- | --- |
 | 2 | **Pronta.** User e autenticação: cadastro com convite, login, sessão, `Guard`, `GET /api/v1/me`, rate limit em register e login |
 | 3 | **Pronta.** Trip e membros: domínio, matriz acima, `TransferOwnership`, `GET /trips`, endpoints de membros. Base sync-ready: `version`, soft delete e `seq` por viagem em transação (seção 5.1). O `Authorizer` reutilizável ficou para a fase 4, quando surge o primeiro consumidor |
-| 4 | Itinerary: `Authorizer`, `ItineraryDay`, `ItineraryItem`, timeline calculada, Place→Item |
-| 5 | Sync: pull incremental, push de mutations, idempotência, conflitos, para Trip, Day e Item |
-| 6 | Place e Restaurant (CRUD completo, registrados no sync) |
-| 7 | Flight e Hotel |
-| 8 | Transfer e TransferLeg |
-| 9 | Documents e S3 (upload, download, registrados no sync) |
-| 10 | Adapters do Google (`PlaceProvider`, `RouteProvider`), com os ports nascendo aqui |
+| 4 | **Pronta.** Itinerary: `Authorizer`, `ItineraryDay`, `ItineraryItem`, timeline calculada e unificada entre fontes, Place→Item |
+| 5 | **Pronta.** Sync: pull incremental por cursor, push de mutations, idempotência, conflitos, com fontes pluggáveis por entidade |
+| 6 | **Pronta.** Place e Restaurant (CRUD completo, registrados no sync) |
+| 7 | **Pronta.** Flight e Hotel, com duração e fusos derivados |
+| 8 | **Pronta.** Transfer e etapas, com planejamento de rota |
+| 9 | **Pronta.** Documents no MongoDB GridFS (upload e download por link assinado, registrados no sync) |
+| 10 | **Pronta.** Adapters do Google (`PlaceProvider`, `RouteProvider`), com os ports nascendo aqui; opcionais, ligados pela chave |
 
 Toda entidade nova a partir da fase 4 nasce sync-ready, e "registrar no sync" é critério de aceite da fase dela. Expense, Shopping e Checklist ficam fora até existirem; o sync é pluggable para recebê-los.
 
@@ -142,31 +142,33 @@ Estratégia inicial, explícita: **checagem otimista por versão**.
 
 ## 6. Documentos (fase 9)
 
-**Modelo.** `Document` com `Version`, `Checksum` (SHA-256 hex), `Size`, `MimeType`, `FileName`, `Type`, `Status` (`PENDING`, `READY`), `OwnerID`, `Visibility` (`TRIP` ou `PRIVATE`; PASSPORT nasce `PRIVATE`) e um vínculo opcional genérico `{entityType, entityId}` (o vínculo com `ItineraryItemID` sozinho não cobre voo, hotel etc.).
+**Decisão: os arquivos ficam no MongoDB (GridFS).** O projeto não usa AWS. Backend no Railway, frontend na Vercel e todo o armazenamento no Atlas: um único lugar para backup, acesso e custo. O limite de 25 MB por arquivo cabe folgado no GridFS. Se um dia o volume crescer, o port `Storage` permite trocar por um object storage sem tocar no domínio.
+
+**Modelo.** `Document` com `Version`, `Checksum` (SHA-256 hex), `Size`, `MimeType`, `FileName`, `Type`, `Status` (`PENDING`, `READY`), `OwnerID`, `Visibility` (`TRIP` ou `PRIVATE`) e um vínculo opcional genérico `{type, id}` (viagem, item, voo, hotel, restaurante, lugar ou transfer).
 
 `Version` é a versão de sincronização e sobe a cada mudança de metadata. O `Checksum` identifica o conteúdo. Renomear muda a versão, mas não o checksum, e por isso o cliente sabe que não precisa baixar de novo.
 
-**Port `DocumentStorage`** (no consumidor), com adapter S3 (AWS SDK for Go v2). Endpoint configurável para MinIO no desenvolvimento e nos testes de integração, sem depender da AWS real.
+**Port `Storage`** (no consumidor), com adapter GridFS. Os "links assinados" são URLs da própria API (`/api/v1/storage/{token}`), com token HMAC-SHA256 que carrega expiração, operação, chave, tamanho, checksum, tipo e nome do arquivo.
 
-**Upload (o prompt 3 não definia)**
-1. `POST /trips/{id}/documents`: valida papel e limites, cria metadata `PENDING` e devolve uma presigned PUT URL restrita (tamanho, content-type e checksum).
-2. O cliente envia o arquivo direto ao S3.
-3. `POST /trips/{id}/documents/{docId}/complete`: o servidor confere o objeto (existência, tamanho, checksum) e passa para `READY`.
+**Upload**
+1. `POST /trips/{id}/documents`: valida papel e limites, cria a metadata `PENDING` e devolve o link de `PUT`.
+2. O cliente envia os bytes com `PUT` no link. O servidor exige `Content-Length` igual ao declarado, grava em streaming e confere o SHA-256; se divergir, apaga o arquivo e responde 422 `upload_mismatch`.
+3. `POST /trips/{id}/documents/{docId}/complete`: confere o objeto (existência, tamanho, checksum) e passa para `READY`.
 
-`PENDING` nunca aparece no sync nem em listagens. Arquivo não viaja dentro de mutation, então criar documento fica fora do push. O push só cobre renomear, reclassificar, revincular e apagar.
+`PENDING` nunca aparece no sync nem em listagens de outros usuários. Arquivo não viaja dentro de mutation, então criar documento fica fora do push. O push só cobre renomear, reclassificar, revincular e apagar.
 
-**Download.** `GET /trips/{id}/documents/{docId}/download` valida membership, papel e visibilidade e devolve JSON `{url, expiresAt}` com presigned GET de 5 minutos. Não usa redirect 302: o `Authorization` do cliente seria repassado ao S3 e quebraria a URL assinada. A resposta força `Content-Disposition: attachment` com o nome do arquivo saneado.
+**Download.** `GET /trips/{id}/documents/{docId}/download` valida membership, papel e visibilidade e devolve JSON `{url, method, expiresAt}` com um link de curta duração. A resposta do arquivo usa `nosniff`, `no-store` e `Content-Disposition` com o nome saneado.
 
-**Storage:** `StorageKey` é gerada no servidor (`{env}/trips/{tripId}/docs/{docId}/{version}`), nunca vinda do cliente. Um novo arquivo gera nova chave, sem sobrescrever. O bucket é privado, com Block Public Access, criptografia e CORS restrito às origens do app. Uma URL assinada vale até expirar mesmo se a permissão for revogada, por isso o TTL é curto.
+**Storage:** a chave é gerada no servidor, nunca vinda do cliente. Um link vale até expirar mesmo se a permissão for revogada, por isso o TTL é curto.
 
 **Limites iniciais:** 25 MB por arquivo e allowlist de MIME (PDF, JPEG, PNG, WebP, HEIC).
 
-**Ciclo de vida:** apagar faz soft delete da metadata e remove o objeto do S3 em best-effort. Um sweeper de órfãos (`PENDING` antigos, objetos sem metadata) fica para depois. Apagar viagem também precisa remover os objetos.
+**Ciclo de vida:** apagar faz soft delete da metadata e remove o arquivo do GridFS em best-effort. Ainda não existe um sweeper de órfãos (`PENDING` antigos) nem a limpeza dos filhos de uma viagem apagada; ficam como pendências conhecidas.
 
 ## 7. Testes por fase
 
 - Regras de negócio primeiro, com fakes escritos à mão, sem framework de mock.
-- Integração (build tag `integration`) contra Mongo e MinIO locais, nunca Atlas de produção.
+- Integração (build tag `integration`) contra o Mongo local, nunca Atlas de produção.
 - Sync: idempotência (inclusive duplicata concorrente), conflito, delete e tombstone, paginação entre coleções, cursor expirado, vazamento entre viagens, papel por mutation, redação para VIEWER.
 - Datas: fusos diferentes, DST, duração de voo, dia local versus UTC.
 - Documentos: acesso de não-membro, VIEWER, visibilidade `PRIVATE`, upload incompleto, checksum divergente.
@@ -176,7 +178,7 @@ Estratégia inicial, explícita: **checagem otimista por versão**.
 1. Sync na fase 5, antes de Place, Restaurant, Flight e Hotel.
 2. Cursor por `seq` por viagem, com transações e Compose em replica set.
 3. Conflito por versão devolvido ao cliente, sem LWW por timestamp.
-4. Upload por presigned PUT mais `complete`, sem arquivo dentro de mutation.
+4. Upload por link assinado (`PUT`) mais `complete`, sem arquivo dentro de mutation.
 5. `Visibility` em documentos (`PRIVATE` para passaporte).
 6. Limites: 25 MB, TTL de URL de 5 minutos, retenção de tombstones de 90 dias.
-7. MinIO no Compose para desenvolvimento e testes.
+7. Arquivos no MongoDB (GridFS), sem AWS nem MinIO.
