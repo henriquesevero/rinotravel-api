@@ -7,7 +7,7 @@ import (
 )
 
 func TestMarkerLabel_UsesDigitsThenLetters(t *testing.T) {
-	for i, want := range map[int]string{0: "1", 8: "9", 9: "A", 10: "B", 24: "P"} {
+	for i, want := range map[int]string{0: "1", 8: "9", 9: "A", 10: "B", 24: "P", 34: "Z", 35: "", 60: ""} {
 		if got := markerLabel(i); got != want {
 			t.Errorf("markerLabel(%d) = %q, want %q", i, got, want)
 		}

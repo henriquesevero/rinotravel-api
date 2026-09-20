@@ -17,9 +17,9 @@ import (
 
 const (
 	defaultStaticMapsBase = "https://maps.googleapis.com"
-	// maxStaticURL keeps the request under Google's URL limit. A route line long enough to pass it is
-	// dropped and the map falls back to the two markers.
-	maxStaticURL     = 8000
+	// maxStaticURL keeps the request under Google's limit (16,384 characters). A route line long enough to
+	// pass it is dropped and the map falls back to the markers.
+	maxStaticURL     = 14000
 	staticMapSize    = "640x360"
 	brandBlueMarker  = "0x2563EB"
 	maxMapImageBytes = 2 << 20
@@ -77,8 +77,13 @@ func staticMapQuery(spec transfer.MapSpec, withPath bool) url.Values {
 // tried in turn until the request fits in a URL.
 var dayTolerances = []float64{0, 0.00005, 0.0002, 0.0008, 0.003}
 
+// groupColors give each day of a trip its own colour, repeating after eight.
+var groupColors = []string{"0x2563EB", "0xF97316", "0x16A34A", "0x7C3AED", "0xDB2777", "0x0D9488", "0xD97706", "0xDC2626"}
+
+func groupColor(group int) string { return groupColors[group%len(groupColors)] }
+
 func staticDayURL(base, key string, spec daymap.DaySpec) string {
-	build := func(paths []string) string {
+	build := func(paths []daymap.Path) string {
 		q := url.Values{}
 		q.Set("size", staticMapSize)
 		q.Set("scale", "2")
@@ -88,19 +93,23 @@ func staticDayURL(base, key string, spec daymap.DaySpec) string {
 			q.Set("language", spec.Language)
 		}
 		for _, stop := range spec.Stops {
-			q.Add("markers", "color:"+brandBlueMarker+"|label:"+stop.Label+"|"+point(stop.Location))
+			marker := "color:" + groupColor(stop.Group)
+			if stop.Label != "" {
+				marker += "|label:" + stop.Label
+			}
+			q.Add("markers", marker+"|"+point(stop.Location))
 		}
 		for _, path := range paths {
-			q.Add("path", "color:"+brandBlueMarker+"D0|weight:5|enc:"+path)
+			q.Add("path", "color:"+groupColor(path.Group)+"D0|weight:5|enc:"+path.Encoded)
 		}
 		q.Set("key", key)
 		return base + "/maps/api/staticmap?" + q.Encode()
 	}
 
 	for _, tolerance := range dayTolerances {
-		paths := make([]string, 0, len(spec.Paths))
+		paths := make([]daymap.Path, 0, len(spec.Paths))
 		for _, path := range spec.Paths {
-			paths = append(paths, simplifyEncoded(path, tolerance))
+			paths = append(paths, daymap.Path{Encoded: simplifyEncoded(path.Encoded, tolerance), Group: path.Group})
 		}
 		if full := build(paths); len(full) <= maxStaticURL {
 			return full

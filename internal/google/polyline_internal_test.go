@@ -48,13 +48,17 @@ func TestSimplify_KeepsTheShapeWithFewerPoints(t *testing.T) {
 }
 
 func daySpec(paths ...string) daymap.DaySpec {
+	lines := make([]daymap.Path, 0, len(paths))
+	for i, p := range paths {
+		lines = append(lines, daymap.Path{Encoded: p, Group: i})
+	}
 	return daymap.DaySpec{
 		Stops: []daymap.Marker{
 			{Label: "1", Location: kernel.Location{Name: "A", Coordinates: &kernel.Coordinates{Lat: 40.1, Lng: -73.1}}},
 			{Label: "2", Location: kernel.Location{Address: "Times Sq, New York"}},
 			{Label: "3", Location: kernel.Location{Name: "C"}},
 		},
-		Paths:    paths,
+		Paths:    lines,
 		Language: "pt-BR",
 	}
 }
@@ -105,5 +109,27 @@ func TestStaticDayURL_FallsBackToStopsWhenNothingElseFits(t *testing.T) {
 	raw := staticDayURL("https://maps.example", "k", spec)
 	if strings.Contains(raw, "path=") && len(raw) > maxStaticURL {
 		t.Errorf("url of %d characters is over the limit", len(raw))
+	}
+}
+
+func TestStaticDayURL_ColoursEachDayAndAllowsUnlabelledPins(t *testing.T) {
+	spec := daymap.DaySpec{
+		Stops: []daymap.Marker{
+			{Label: "1", Group: 0, Location: kernel.Location{Name: "A"}},
+			{Label: "2", Group: 1, Location: kernel.Location{Name: "B"}},
+			{Label: "", Group: 9, Location: kernel.Location{Name: "C"}}, // past the last colour: it wraps
+		},
+		Paths: []daymap.Path{{Encoded: googleExample, Group: 1}},
+	}
+	raw := staticDayURL("https://maps.example", "k", spec)
+
+	for _, want := range []string{"color%3A0x2563EB%7Clabel%3A1%7CA", "color%3A0xF97316%7Clabel%3A2%7CB", "color%3A0xF97316D0%7Cweight%3A5"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("missing %q in %s", want, raw)
+		}
+	}
+	// Group 9 wraps to the second colour, and a pin without a label is still a pin.
+	if !strings.Contains(raw, "color%3A0xF97316%7CC") || strings.Contains(raw, "label%3A%7C") {
+		t.Errorf("unlabelled pin wrongly drawn: %s", raw)
 	}
 }

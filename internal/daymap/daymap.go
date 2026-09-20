@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	MaxStops = 25
-	// legConcurrency keeps a long day from opening a burst of requests to the route provider.
-	legConcurrency = 4
+	// MaxStops covers a whole trip, not just a day: a fortnight with a handful of places a day.
+	MaxStops = 80
+	// legConcurrency keeps a long route from opening a burst of requests to the route provider.
+	legConcurrency = 6
 )
 
 // Mode is how the whole day is travelled. Public transit is the default for a city day.
@@ -59,6 +60,11 @@ func (m Mode) transferMode() transfer.Mode {
 type StopInput struct {
 	Label    string               `json:"label"`
 	Location kernel.LocationInput `json:"location"`
+	// Group tells the pictures which stops belong together (the day of the trip): each group gets its
+	// own colour. Zero for a single day.
+	Group int `json:"group"`
+	// Pin is what the pin of this stop says in a picture (one character). Empty numbers the stops.
+	Pin string `json:"pin"`
 }
 
 type Request struct {
@@ -86,13 +92,20 @@ type Result struct {
 
 type Marker struct {
 	Label    string
+	Group    int
 	Location kernel.Location
 }
 
-// DaySpec is what a picture of the whole day needs.
+// Path is the line of one trip, in the colour of its group.
+type Path struct {
+	Encoded string
+	Group   int
+}
+
+// DaySpec is what a picture of the route needs.
 type DaySpec struct {
 	Stops    []Marker
-	Paths    []string
+	Paths    []Path
 	Language string
 }
 
@@ -129,7 +142,12 @@ func (s *Service) Plan(ctx context.Context, actor user.ID, tripID trip.ID, in Re
 		location := v.Location(field, stop.Location)
 		v.Check(location.Coordinates != nil || location.Address != "" || location.Name != "", field, "is required")
 		v.Check(len(stop.Label) <= 200, fmt.Sprintf("stops[%d].label", i), "must have at most 200 characters")
-		stops = append(stops, Marker{Label: markerLabel(i), Location: location})
+		v.Check(stop.Group >= 0 && stop.Group <= 1000, fmt.Sprintf("stops[%d].group", i), "must be between 0 and 1000")
+		pin := markerLabel(i)
+		if custom := []rune(strings.TrimSpace(stop.Pin)); len(custom) > 0 {
+			pin = string(custom[0])
+		}
+		stops = append(stops, Marker{Label: pin, Group: stop.Group, Location: location})
 	}
 	if err := v.Err(); err != nil {
 		return Result{}, err
@@ -139,10 +157,11 @@ func (s *Service) Plan(ctx context.Context, actor user.ID, tripID trip.ID, in Re
 
 	result := Result{Legs: legs}
 	if in.IncludeImage && s.renderer != nil {
-		paths := make([]string, 0, len(legs))
+		paths := make([]Path, 0, len(legs))
 		for _, leg := range legs {
 			if leg.Polyline != "" {
-				paths = append(paths, leg.Polyline)
+				// A trip belongs to the day it arrives in: the walk from the hotel is that morning's.
+				paths = append(paths, Path{Encoded: leg.Polyline, Group: stops[leg.To].Group})
 			}
 		}
 		image, err := s.renderer.RenderDay(ctx, DaySpec{Stops: stops, Paths: paths, Language: in.Language})
@@ -200,12 +219,17 @@ func (s *Service) leg(ctx context.Context, from int, origin, destination kernel.
 	return leg
 }
 
-// markerLabel is what the pin shows: 1 to 9, then A, B, C... (the map service takes one character).
+// markerLabel is what the pin shows: 1 to 9, then A to Z (the map service takes one character), then
+// no label at all, which still draws a pin.
 func markerLabel(i int) string {
-	if i < 9 {
+	switch {
+	case i < 9:
 		return fmt.Sprint(i + 1)
+	case i < 35:
+		return string(rune('A' + i - 9))
+	default:
+		return ""
 	}
-	return string(rune('A' + i - 9))
 }
 
 func samePlace(a, b kernel.Location) bool {

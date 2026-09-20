@@ -671,6 +671,44 @@ func TestPlanTheDayOnAMap(t *testing.T) {
 	w.problem(t, "POST", "/maps/day", w.ana, `{"stops":[{"location":{"name":"A"}},{"location":{"name":"B"}}],"mode":"JETPACK"}`, 422, "validation_failed")
 }
 
+func TestPlanAWholeTripOnAMap(t *testing.T) {
+	w := newWorld(t)
+	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: 10 * time.Minute, DistanceMeters: 1500, Polyline: "abc123"}}
+	w.Maps.Image = transfer.MapImage{Data: []byte("img"), ContentType: "image/png"}
+
+	// Sixty places over a fortnight, each day its own group with its day number on the pin.
+	var stops []string
+	for i := 0; i < 60; i++ {
+		day := i/4 + 1
+		stops = append(stops, fmt.Sprintf(`{"label":"Parada %d","group":%d,"pin":"%d","location":{"name":"Lugar %d","latitude":%f,"longitude":%f}}`, i, day-1, day, i, 35.0+float64(i)*0.01, 139.0+float64(i)*0.01))
+	}
+	body := `{"stops":[` + strings.Join(stops, ",") + `],"includeImage":true}`
+
+	res := apitest.Decode(t, w.Do("POST", w.base+"/maps/day", w.ana.Token, body))
+	if legs := res["legs"].([]any); len(legs) != 59 {
+		t.Fatalf("legs = %d, want one between each of the 60 places", len(legs))
+	}
+	if calls := w.Routes.Calls.Load(); calls != 59 {
+		t.Errorf("route calls = %d, want 59", calls)
+	}
+	spec := w.Maps.Days[len(w.Maps.Days)-1]
+	if len(spec.Stops) != 60 || spec.Stops[0].Label != "1" || spec.Stops[4].Label != "2" || spec.Stops[4].Group != 1 {
+		t.Errorf("stops = %+v, want the day number on each pin and one group per day", spec.Stops[:6])
+	}
+	// The trip from the last place of day 1 to the first of day 2 belongs to day 2.
+	if got := spec.Paths[3].Group; got != 1 {
+		t.Errorf("crossing-days path group = %d, want the day it arrives in (1)", got)
+	}
+
+	// Past a trip's worth of places the request is refused, not silently cut.
+	var tooMany []string
+	for i := 0; i < 81; i++ {
+		tooMany = append(tooMany, `{"location":{"name":"P"}}`)
+	}
+	w.problem(t, "POST", "/maps/day", w.ana, `{"stops":[`+strings.Join(tooMany, ",")+`]}`, 422, "validation_failed")
+	w.problem(t, "POST", "/maps/day", w.ana, `{"stops":[{"group":-1,"location":{"name":"A"}},{"location":{"name":"B"}}]}`, 422, "validation_failed")
+}
+
 func TestPlanTheDayDegradesInsteadOfFailing(t *testing.T) {
 	w := newWorld(t)
 	w.Maps.Image = transfer.MapImage{Data: []byte("img"), ContentType: "image/png"}

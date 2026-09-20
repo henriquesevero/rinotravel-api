@@ -43,7 +43,7 @@ func TestStaticMapURL_DrawsBothEndsAndTheRoute(t *testing.T) {
 }
 
 func TestStaticMapURL_DropsTheLineWhenTheURLWouldBeTooLong(t *testing.T) {
-	raw := staticMapURL("https://maps.example", "k", spec(strings.Repeat("a", 9000)))
+	raw := staticMapURL("https://maps.example", "k", spec(strings.Repeat("a", 20000)))
 
 	if len(raw) > maxStaticURL {
 		t.Errorf("url has %d characters, over the %d limit", len(raw), maxStaticURL)
