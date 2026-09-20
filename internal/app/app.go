@@ -135,6 +135,8 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		}
 		placesDeps.Search = place.NewSearchPlaces(placeProvider, d.Logger)
 		placesDeps.SearchLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
+		placesDeps.Maps = place.NewLocationMaps(mapRenderer.(place.PinRenderer), authz, d.Logger)
+		placesDeps.MapLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
 		transferDeps.Planner = transfer.NewPlanner(routeProvider, authz, d.Logger)
 		transferDeps.Maps = transfer.NewMaps(routeProvider, mapRenderer, authz, d.Logger)
 		transferDeps.MapLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))

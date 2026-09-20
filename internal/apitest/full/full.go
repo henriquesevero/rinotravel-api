@@ -77,10 +77,16 @@ type FakeMaps struct {
 	Image transfer.MapImage
 	Err   error
 	Specs []transfer.MapSpec
+	Pins  []place.PinSpec
 }
 
 func (f *FakeMaps) Render(_ context.Context, spec transfer.MapSpec) (transfer.MapImage, error) {
 	f.Specs = append(f.Specs, spec)
+	return f.Image, f.Err
+}
+
+func (f *FakeMaps) RenderPin(_ context.Context, spec place.PinSpec) (kernel.MapImage, error) {
+	f.Pins = append(f.Pins, spec)
 	return f.Image, f.Err
 }
 
@@ -103,6 +109,8 @@ func New(t *testing.T) *Stack {
 		placeH := placeapi.New(placeapi.Deps{
 			Logger: e.Logger, Guard: e.Guard, Places: placesUC, Restaurants: place.NewRestaurants(restaurants, authz),
 			Search: place.NewSearchPlaces(google.NewMeteredPlaces(s.Places, s.Quota, GoogleLimit, e.Logger), e.Logger), SearchLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
+			Maps:       place.NewLocationMaps(google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), authz, e.Logger),
+			MapLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
 		})
 		bookingH := bookingapi.New(bookingapi.Deps{Logger: e.Logger, Guard: e.Guard, Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz)})
 		routes := google.NewMeteredRoutes(s.Routes, s.Quota, GoogleLimit, e.Logger)

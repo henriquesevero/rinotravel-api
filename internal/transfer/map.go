@@ -22,10 +22,8 @@ type MapSpec struct {
 	Language string
 }
 
-type MapImage struct {
-	Data        []byte
-	ContentType string
-}
+// MapImage is shared with the other features that draw maps.
+type MapImage = kernel.MapImage
 
 // MapRenderer is the port to a static map service. Pictures are made on request and handed straight
 // to the client: nothing from the provider is stored.

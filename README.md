@@ -164,7 +164,7 @@ Cada domínio segue o mesmo formato (entidades e use cases no pacote raiz, `http
 | Domínio | Rotas principais |
 | --- | --- |
 | Roteiro | `itinerary-days`, `itinerary-items`, `itinerary-items/from-place`, `GET itinerary` (timeline unificada) |
-| Lugares | `places`, `restaurants`, `GET /places/search` (só com chave do Google) |
+| Lugares | `places`, `restaurants`, `GET /places/search` e `maps/location` (mapa de um local em PNG; só com chave do Google) |
 | Reservas | `flights`, `hotels` (duração do voo e fusos derivados no servidor) |
 | Transfers | `transfers`, `transfers/plan` e `transfers/map` (imagem PNG do mapa da rota; só com chave do Google) |
 | Documentos | `documents`, `documents/{id}/complete`, `documents/{id}/download` |

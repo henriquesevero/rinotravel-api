@@ -579,6 +579,48 @@ func TestMapPictureDegradesInsteadOfFailing(t *testing.T) {
 	}
 }
 
+func TestMapOfOnePlace(t *testing.T) {
+	w := newWorld(t)
+	png := []byte("\x89PNG pin")
+	w.Maps.Image = transfer.MapImage{Data: png, ContentType: "image/png"}
+	body := `{"location":{"name":"Torre de Tóquio","address":"Minato, Tokyo","latitude":35.6586,"longitude":139.7454},"language":"pt-BR"}`
+
+	rec := w.Do("POST", w.base+"/maps/location", w.ana.Token, body)
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/png" || rec.Body.String() != string(png) {
+		t.Fatalf("map = %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if cache := rec.Header().Get("Cache-Control"); !strings.HasPrefix(cache, "private") {
+		t.Errorf("Cache-Control = %q, want a private picture", cache)
+	}
+	pin := w.Maps.Pins[len(w.Maps.Pins)-1]
+	if pin.Location.Name != "Torre de Tóquio" || pin.Location.Coordinates == nil || pin.Language != "pt-BR" {
+		t.Errorf("pin = %+v", pin)
+	}
+
+	// Anyone who can read the trip sees its maps; strangers learn nothing.
+	if rec := w.Do("POST", w.base+"/maps/location", w.bia.Token, body); rec.Code != 200 {
+		t.Errorf("a viewer must see the map: %d", rec.Code)
+	}
+	w.problem(t, "POST", "/maps/location", w.caio, body, 404, "trip_not_found")
+	apitest.RequireProblem(t, w.Do("POST", w.base+"/maps/location", "", body), 401, "unauthenticated")
+	w.problem(t, "POST", "/maps/location", w.ana, `{"location":{}}`, 422, "validation_failed")
+
+	w.Maps.Err = fmt.Errorf("upstream exploded: secret-detail")
+	problem := w.problem(t, "POST", "/maps/location", w.ana, body, 503, "provider_unavailable")
+	if strings.Contains(fmt.Sprint(problem), "secret-detail") {
+		t.Error("provider errors must not leak")
+	}
+	w.Maps.Err = nil
+
+	// Location maps share the picture allowance with route maps.
+	w.Quota.Set(google.BucketMaps, full.GoogleLimit)
+	drawn := len(w.Maps.Pins)
+	w.problem(t, "POST", "/maps/location", w.ana, body, 503, "provider_quota_exhausted")
+	if len(w.Maps.Pins) != drawn {
+		t.Error("the renderer was called after the monthly limit was reached")
+	}
+}
+
 func marshal(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"rinotravel-api/internal/kernel"
+	"rinotravel-api/internal/place"
 	"rinotravel-api/internal/transfer"
 )
 
@@ -102,5 +103,42 @@ func TestStaticMaps_TransportErrorsDoNotLeakTheKey(t *testing.T) {
 	_, err := NewStaticMapsWithBase(key, base, nil).Render(context.Background(), spec(""))
 	if err == nil || strings.Contains(err.Error(), key) {
 		t.Errorf("err = %v, want a failure that does not contain the key", err)
+	}
+}
+
+func TestStaticPinURL_MarksOnePlaceAtStreetLevel(t *testing.T) {
+	withPoint := staticPinURL("https://maps.example", "the-key", place.PinSpec{
+		Location: kernel.Location{Name: "Torre", Address: "Minato, Tokyo", Coordinates: &kernel.Coordinates{Lat: 35.6586, Lng: 139.7454}},
+		Language: "pt-BR",
+	})
+	q, _ := url.Parse(withPoint)
+	if q.Query().Get("zoom") != "15" || q.Query().Get("key") != "the-key" || q.Query().Get("language") != "pt-BR" {
+		t.Errorf("url = %s", withPoint)
+	}
+	if markers := q.Query()["markers"]; len(markers) != 1 || !strings.HasSuffix(markers[0], "|35.658600,139.745400") {
+		t.Errorf("markers = %v, want the coordinates to win", markers)
+	}
+
+	byAddress, _ := url.Parse(staticPinURL("https://maps.example", "k", place.PinSpec{Location: kernel.Location{Address: "Times Sq, New York"}}))
+	if markers := byAddress.Query()["markers"]; len(markers) != 1 || !strings.HasSuffix(markers[0], "|Times Sq, New York") {
+		t.Errorf("markers = %v, want the address", markers)
+	}
+}
+
+func TestStaticMaps_RenderPin(t *testing.T) {
+	png := []byte("\x89PNG pin")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("zoom") == "" {
+			http.Error(w, "missing zoom", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(png)
+	}))
+	t.Cleanup(server.Close)
+
+	image, err := NewStaticMapsWithBase("k", server.URL, nil).RenderPin(context.Background(), place.PinSpec{Location: kernel.Location{Name: "Torre"}})
+	if err != nil || string(image.Data) != string(png) {
+		t.Fatalf("RenderPin() = %+v, %v", image, err)
 	}
 }

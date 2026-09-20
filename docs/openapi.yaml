@@ -1464,6 +1464,43 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
 
+  /api/v1/trips/{tripId}/maps/location:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    post:
+      tags: [Places]
+      operationId: renderLocationMap
+      summary: Desenha o mapa de um único local (item do roteiro, lugar, restaurante ou hotel). Só existe quando o servidor tem GOOGLE_MAPS_API_KEY
+      description: |
+        Devolve uma imagem PNG com o local marcado. A imagem é feita na hora e nada dela é guardada no servidor.
+        Qualquer membro da viagem (inclusive LEITOR) pode pedir.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationMapRequest'
+      responses:
+        '200':
+          description: A imagem do mapa (cache privado de 5 minutos).
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
   /api/v1/trips/{tripId}/documents:
     parameters:
       - $ref: '#/components/parameters/TripId'
@@ -3089,6 +3126,16 @@ components:
           $ref: '#/components/schemas/TransferMode'
         departureAt:
           $ref: '#/components/schemas/ZonedTime'
+        language:
+          type: string
+
+    LocationMapRequest:
+      type: object
+      additionalProperties: false
+      required: [location]
+      properties:
+        location:
+          $ref: '#/components/schemas/Location'
         language:
           type: string
 

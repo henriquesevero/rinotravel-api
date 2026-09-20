@@ -115,16 +115,24 @@ func languageOrDefault(l string) string {
 	return l
 }
 
+// waypoint prefers the words to the raw point. Google finds a transit route from "John F. Kennedy
+// International Airport, Jamaica, NY" but none from the coordinates of that same place (they can fall
+// inside a terminal or a park, far from any stop), so a place that has an address is sent by name and
+// address. Coordinates are used when there is no text to send.
 func waypoint(l kernel.Location) map[string]any {
-	if l.Coordinates != nil {
+	name, address := strings.TrimSpace(l.Name), strings.TrimSpace(l.Address)
+	switch {
+	case address != "" && name != "" && !strings.Contains(address, name):
+		return map[string]any{"address": name + ", " + address}
+	case address != "":
+		return map[string]any{"address": address}
+	case l.Coordinates != nil:
 		return map[string]any{"location": map[string]any{"latLng": map[string]float64{
 			"latitude": l.Coordinates.Lat, "longitude": l.Coordinates.Lng,
 		}}}
+	default:
+		return map[string]any{"address": name}
 	}
-	if l.Address != "" {
-		return map[string]any{"address": l.Address}
-	}
-	return map[string]any{"address": l.Name}
 }
 
 func travelMode(m transfer.Mode) string {

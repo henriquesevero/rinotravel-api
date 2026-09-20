@@ -3,6 +3,7 @@ package google
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"rinotravel-api/internal/kernel"
@@ -107,4 +108,15 @@ func (m *MeteredMaps) Render(ctx context.Context, spec transfer.MapSpec) (transf
 		return transfer.MapImage{}, err
 	}
 	return m.inner.Render(ctx, spec)
+}
+
+func (m *MeteredMaps) RenderPin(ctx context.Context, spec place.PinSpec) (kernel.MapImage, error) {
+	pins, ok := m.inner.(place.PinRenderer)
+	if !ok {
+		return kernel.MapImage{}, fmt.Errorf("map renderer cannot draw a single place")
+	}
+	if err := m.meter.take(ctx); err != nil {
+		return kernel.MapImage{}, err
+	}
+	return pins.RenderPin(ctx, spec)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"rinotravel-api/internal/kernel"
+	"rinotravel-api/internal/place"
 	"rinotravel-api/internal/transfer"
 )
 
@@ -71,6 +72,24 @@ func staticMapQuery(spec transfer.MapSpec, withPath bool) url.Values {
 	return q
 }
 
+// pinZoom is a street-level view: enough to recognise the block, not so close that it is only a roof.
+const pinZoom = "15"
+
+func staticPinURL(base, key string, spec place.PinSpec) string {
+	q := url.Values{}
+	q.Set("size", staticMapSize)
+	q.Set("scale", "2")
+	q.Set("maptype", "roadmap")
+	q.Set("format", "png")
+	q.Set("zoom", pinZoom)
+	if spec.Language != "" {
+		q.Set("language", spec.Language)
+	}
+	q.Add("markers", "color:"+brandBlueMarker+"|"+point(spec.Location))
+	q.Set("key", key)
+	return base + "/maps/api/staticmap?" + q.Encode()
+}
+
 // staticMapURL is separate so the size rule and the encoding can be tested without a network.
 func staticMapURL(base, key string, spec transfer.MapSpec) string {
 	build := func(withPath bool) string {
@@ -86,25 +105,34 @@ func staticMapURL(base, key string, spec transfer.MapSpec) string {
 }
 
 func (s *StaticMaps) Render(ctx context.Context, spec transfer.MapSpec) (transfer.MapImage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, staticMapURL(s.base, s.key, spec), nil)
+	return s.fetch(ctx, staticMapURL(s.base, s.key, spec))
+}
+
+// RenderPin draws one marker on a street-level map.
+func (s *StaticMaps) RenderPin(ctx context.Context, spec place.PinSpec) (kernel.MapImage, error) {
+	return s.fetch(ctx, staticPinURL(s.base, s.key, spec))
+}
+
+func (s *StaticMaps) fetch(ctx context.Context, target string) (kernel.MapImage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return transfer.MapImage{}, fmt.Errorf("build static map request: %w", err)
+		return kernel.MapImage{}, fmt.Errorf("build static map request: %w", err)
 	}
 	resp, err := s.http.Do(req)
 	if err != nil {
-		return transfer.MapImage{}, fmt.Errorf("static map request failed: %w", stripURL(err))
+		return kernel.MapImage{}, fmt.Errorf("static map request failed: %w", stripURL(err))
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxMapImageBytes))
 	if err != nil {
-		return transfer.MapImage{}, fmt.Errorf("read static map: %w", err)
+		return kernel.MapImage{}, fmt.Errorf("read static map: %w", err)
 	}
 	contentType := resp.Header.Get("Content-Type")
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(contentType, "image/") {
-		return transfer.MapImage{}, fmt.Errorf("google static map responded %d: %s", resp.StatusCode, errorText(data))
+		return kernel.MapImage{}, fmt.Errorf("google static map responded %d: %s", resp.StatusCode, errorText(data))
 	}
-	return transfer.MapImage{Data: data, ContentType: contentType}, nil
+	return kernel.MapImage{Data: data, ContentType: contentType}, nil
 }
 
 // errorText keeps the start of Google's plain-text explanation ("...not authorized to use this

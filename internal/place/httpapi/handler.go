@@ -23,6 +23,9 @@ type Deps struct {
 	// Search and SearchLimiter are optional: without a places provider the search route is not mounted.
 	Search        *place.SearchPlaces
 	SearchLimiter *httpx.RateLimiter
+	// Maps and MapLimiter are optional too: without a map service the location map route is not mounted.
+	Maps       *place.LocationMaps
+	MapLimiter *httpx.RateLimiter
 }
 
 type Handler struct {
@@ -53,6 +56,10 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	if h.deps.Search != nil {
 		limited := h.deps.SearchLimiter.Wrap(h.search)
 		mux.Handle("GET /api/v1/places/search", httpx.Handle(h.deps.Logger, h.deps.Guard.Require(limited)))
+	}
+	if h.deps.Maps != nil {
+		limited := h.deps.MapLimiter.Wrap(h.mapImage)
+		mux.Handle("POST /api/v1/trips/{tripId}/maps/location", httpx.Handle(h.deps.Logger, h.deps.Guard.Require(limited)))
 	}
 }
 
@@ -155,4 +162,26 @@ func presentRestaurant(r place.Restaurant, role trip.Role) RestaurantResponse {
 		resp.ReservationCode = r.ReservationCode
 	}
 	return resp
+}
+
+// mapImage answers with the picture itself, private and short-lived (see the transfer map).
+func (h *Handler) mapImage(w http.ResponseWriter, r *http.Request) error {
+	tripID, err := httpres.PathID(r, "tripId")
+	if err != nil {
+		return err
+	}
+	var in place.PinRequest
+	if err := httpx.DecodeJSON(w, r, &in); err != nil {
+		return err
+	}
+	image, err := h.deps.Maps.Render(r.Context(), authapi.UserID(r.Context()), trip.ID(tripID), in)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", image.ContentType)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(image.Data)
+	return nil
 }
