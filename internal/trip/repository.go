@@ -29,8 +29,9 @@ type View struct {
 }
 
 type MemberView struct {
-	Member Member
-	User   user.User
+	Member       Member
+	User         user.User
+	Capabilities MemberCapabilities
 }
 
 func loadAsMember(ctx context.Context, trips Repository, id ID, actor user.ID) (Trip, Role, error) {

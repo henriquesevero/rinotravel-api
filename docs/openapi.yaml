@@ -1,0 +1,779 @@
+openapi: 3.1.0
+
+info:
+  title: RinoTravel API
+  version: 0.3.0
+  description: |
+    API do RinoTravel. Fases implementadas: fundação, autenticação e viagens com membros.
+
+    Erros usam `application/problem+json` (RFC 9457). O campo `code` é estável e pensado para o cliente traduzir a mensagem.
+    Quem não é membro de uma viagem recebe sempre `404 trip_not_found`, idêntico ao de uma viagem inexistente.
+
+servers:
+  - url: http://localhost:8080
+    description: Desenvolvimento local
+
+tags:
+  - name: Health
+    description: Verificação de disponibilidade.
+  - name: Auth
+    description: Cadastro com código de convite, login, logout e o usuário atual.
+  - name: Trips
+    description: Viagens das quais o usuário é membro.
+  - name: Members
+    description: Membros de uma viagem e seus papéis.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness
+      security: []
+      responses:
+        '200':
+          description: A API está de pé.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Cria a conta (exige o código de convite) e devolve a sessão
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/Session'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Autentica e devolve uma nova sessão
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Session'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoga a sessão atual
+      responses:
+        '204':
+          description: Sessão revogada.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: Usuário autenticado
+      responses:
+        '200':
+          description: O usuário da sessão.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/trips:
+    get:
+      tags: [Trips]
+      operationId: listTrips
+      summary: Viagens das quais sou membro (mais recentes primeiro)
+      responses:
+        '200':
+          description: Lista de viagens.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Trip'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Trips]
+      operationId: createTrip
+      summary: Cria uma viagem; quem cria vira OWNER
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTripRequest'
+      responses:
+        '201':
+          description: Viagem criada.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trip'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Trips]
+      operationId: getTrip
+      summary: Detalhes da viagem
+      responses:
+        '200':
+          description: A viagem.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trip'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Trips]
+      operationId: updateTrip
+      summary: Atualização parcial (OWNER e ADMIN). Exige a versão que o cliente viu
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTripRequest'
+      responses:
+        '200':
+          description: Viagem atualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trip'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Trips]
+      operationId: deleteTrip
+      summary: Remove a viagem (somente OWNER; soft delete)
+      responses:
+        '204':
+          description: Viagem removida.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/transfer-ownership:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    post:
+      tags: [Trips]
+      operationId: transferOwnership
+      summary: Passa a posse para outro membro (somente OWNER); o dono anterior vira ADMIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferOwnershipRequest'
+      responses:
+        '200':
+          description: A viagem, já com o novo dono e o meu novo papel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trip'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/members:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Members]
+      operationId: listMembers
+      summary: Membros da viagem (OWNER primeiro), com o que eu posso fazer com cada um
+      responses:
+        '200':
+          description: Lista de membros.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Member'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Members]
+      operationId: addMember
+      summary: Adiciona um membro pelo email (OWNER e ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMemberRequest'
+      responses:
+        '201':
+          description: Membro adicionado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/UserId'
+    patch:
+      tags: [Members]
+      operationId: changeMemberRole
+      summary: Muda o papel de um membro
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeRoleRequest'
+      responses:
+        '200':
+          description: Membro atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Members]
+      operationId: removeMember
+      summary: Remove um membro, ou sai da viagem quando `userId` é o meu
+      responses:
+        '204':
+          description: Membro removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Token de sessão devolvido por register e login (prefixo `rt_`, validade de 30 dias).
+
+  parameters:
+    TripId:
+      name: tripId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Session:
+      description: Sessão criada.
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Session'
+    BadRequest:
+      description: Requisição malformada (JSON inválido, campo desconhecido, id fora do formato).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Sem autenticação, token inválido ou expirado, ou credenciais inválidas.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Autenticado, mas sem permissão para esta ação.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Recurso inexistente, ou que o usuário não pode saber que existe.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Conflito de estado (versão desatualizada, email já cadastrado, id já usado, membro já existe).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unprocessable:
+      description: Dados bem formados que violam uma regra; `errors` lista os campos.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyRequests:
+      description: Limite de requisições excedido.
+      headers:
+        Retry-After:
+          description: Segundos até poder tentar de novo.
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    ErrorCode:
+      type: string
+      description: Código estável do erro; use-o para traduzir a mensagem.
+      enum:
+        - route_not_found
+        - malformed_json
+        - body_too_large
+        - invalid_id
+        - unauthenticated
+        - invalid_token
+        - invalid_credentials
+        - invalid_registration_code
+        - email_taken
+        - validation_failed
+        - rate_limited
+        - internal_error
+        - user_not_found
+        - trip_not_found
+        - trip_id_taken
+        - version_conflict
+        - empty_patch
+        - forbidden
+        - member_exists
+        - member_not_found
+        - owner_locked
+        - owner_assignment
+        - already_owner
+
+    Problem:
+      type: object
+      required: [status, title, code, detail]
+      properties:
+        status:
+          type: integer
+        title:
+          type: string
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        detail:
+          type: string
+          description: Mensagem em inglês, segura para exibir como fallback.
+        requestId:
+          type: string
+          description: Identificador para suporte; o mesmo vai no header X-Request-ID.
+        errors:
+          type: array
+          description: Presente em erros de validação (422).
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    Role:
+      type: string
+      enum: [OWNER, ADMIN, MEMBER, VIEWER]
+
+    AssignableRole:
+      type: string
+      description: Papéis que podem ser atribuídos diretamente. OWNER só muda por transfer-ownership.
+      enum: [ADMIN, MEMBER, VIEWER]
+
+    User:
+      type: object
+      required: [id, email, name, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Session:
+      type: object
+      required: [token, expiresAt, user]
+      properties:
+        token:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, name, password, registrationCode]
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+          maxLength: 100
+        password:
+          type: string
+          minLength: 10
+          maxLength: 128
+        registrationCode:
+          type: string
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    TripCapabilities:
+      type: object
+      description: O que o usuário pode fazer nesta viagem. Calculado pelo servidor; a UI só lê.
+      required: [updateTrip, manageMembers, writeContent, deleteTrip, transferOwnership, leave, addableRoles]
+      properties:
+        updateTrip:
+          type: boolean
+        manageMembers:
+          type: boolean
+        writeContent:
+          type: boolean
+        deleteTrip:
+          type: boolean
+        transferOwnership:
+          type: boolean
+        leave:
+          type: boolean
+        addableRoles:
+          type: array
+          description: Papéis que o usuário pode atribuir ao adicionar um membro.
+          items:
+            $ref: '#/components/schemas/AssignableRole'
+
+    Trip:
+      type: object
+      required:
+        - id
+        - name
+        - destination
+        - startDate
+        - endDate
+        - timezone
+        - currency
+        - ownerId
+        - myRole
+        - capabilities
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        destination:
+          type: string
+        startDate:
+          type: string
+          format: date
+          description: Data civil (YYYY-MM-DD), sem fuso horário.
+        endDate:
+          type: string
+          format: date
+        timezone:
+          type: string
+          description: Fuso IANA, por exemplo America/Sao_Paulo.
+        currency:
+          type: string
+          description: Código ISO 4217.
+        ownerId:
+          type: string
+          format: uuid
+        myRole:
+          $ref: '#/components/schemas/Role'
+        capabilities:
+          $ref: '#/components/schemas/TripCapabilities'
+        version:
+          type: integer
+          format: int64
+          description: Enviar como baseVersion ao atualizar.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateTripRequest:
+      type: object
+      additionalProperties: false
+      required: [name, destination, startDate, endDate, timezone, currency]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. UUID em minúsculas gerado no cliente (criação offline).
+        name:
+          type: string
+          maxLength: 100
+        destination:
+          type: string
+          maxLength: 100
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        timezone:
+          type: string
+        currency:
+          type: string
+
+    UpdateTripRequest:
+      type: object
+      additionalProperties: false
+      required: [baseVersion]
+      properties:
+        baseVersion:
+          type: integer
+          format: int64
+          description: Versão da viagem que o cliente viu. Se estiver desatualizada, a resposta é 409 version_conflict.
+        name:
+          type: string
+          maxLength: 100
+        destination:
+          type: string
+          maxLength: 100
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        timezone:
+          type: string
+        currency:
+          type: string
+
+    TransferOwnershipRequest:
+      type: object
+      additionalProperties: false
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+
+    MemberCapabilities:
+      type: object
+      description: O que o usuário atual pode fazer com este membro.
+      required: [assignableRoles, canRemove]
+      properties:
+        assignableRoles:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssignableRole'
+        canRemove:
+          type: boolean
+          description: Remover o membro, ou sair da viagem quando é o próprio usuário.
+
+    Member:
+      type: object
+      required: [userId, name, email, role, capabilities, createdAt, updatedAt]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        capabilities:
+          $ref: '#/components/schemas/MemberCapabilities'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AddMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [email, role]
+      properties:
+        email:
+          type: string
+        role:
+          $ref: '#/components/schemas/AssignableRole'
+
+    ChangeRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/AssignableRole'

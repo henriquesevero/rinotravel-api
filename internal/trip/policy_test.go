@@ -2,6 +2,7 @@ package trip
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"rinotravel-api/internal/apperror"
@@ -118,6 +119,103 @@ func TestCheckRemoveMember(t *testing.T) {
 		err := checkRemoveMember(tt.actor, tt.target, tt.self)
 		if tt.allowed != (err == nil) || (err != nil && !isForbidden(err)) {
 			t.Errorf("checkRemoveMember(%s removes %s, self=%v) = %v, allowed %v", tt.actor, tt.target, tt.self, err, tt.allowed)
+		}
+	}
+}
+
+func TestCapabilitiesOf(t *testing.T) {
+	tests := []struct {
+		role Role
+		want Capabilities
+	}{
+		{RoleOwner, Capabilities{UpdateTrip: true, ManageMembers: true, WriteContent: true, DeleteTrip: true, TransferOwnership: true, Leave: false, AddableRoles: []Role{RoleAdmin, RoleMember, RoleViewer}}},
+		{RoleAdmin, Capabilities{UpdateTrip: true, ManageMembers: true, WriteContent: true, Leave: true, AddableRoles: []Role{RoleMember, RoleViewer}}},
+		{RoleMember, Capabilities{WriteContent: true, Leave: true, AddableRoles: []Role{}}},
+		{RoleViewer, Capabilities{Leave: true, AddableRoles: []Role{}}},
+		{Role("GUEST"), Capabilities{AddableRoles: []Role{}}},
+	}
+
+	for _, tt := range tests {
+		if got := CapabilitiesOf(tt.role); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("CapabilitiesOf(%s) = %+v, want %+v", tt.role, got, tt.want)
+		}
+	}
+}
+
+func TestCapabilitiesAgreeWithCan(t *testing.T) {
+	for _, role := range allRoles {
+		c := CapabilitiesOf(role)
+		for _, addable := range c.AddableRoles {
+			if err := checkAddMember(role, addable); err != nil {
+				t.Errorf("CapabilitiesOf(%s) offers %s but the policy forbids adding it", role, addable)
+			}
+		}
+		if c.UpdateTrip != Can(role, ActionUpdateTrip) || c.ManageMembers != Can(role, ActionManageMembers) ||
+			c.WriteContent != Can(role, ActionWriteContent) || c.DeleteTrip != Can(role, ActionDeleteTrip) ||
+			c.TransferOwnership != Can(role, ActionTransferOwnership) {
+			t.Errorf("CapabilitiesOf(%s) disagrees with Can: %+v", role, c)
+		}
+	}
+}
+
+func TestMemberCapabilitiesOf(t *testing.T) {
+	tests := []struct {
+		name        string
+		actor       Role
+		target      Role
+		isSelf      bool
+		wantAssign  []Role
+		wantRemoval bool
+	}{
+		{"owner over admin", RoleOwner, RoleAdmin, false, []Role{RoleMember, RoleViewer}, true},
+		{"owner over member", RoleOwner, RoleMember, false, []Role{RoleAdmin, RoleViewer}, true},
+		{"owner over viewer", RoleOwner, RoleViewer, false, []Role{RoleAdmin, RoleMember}, true},
+		{"admin over member", RoleAdmin, RoleMember, false, []Role{RoleViewer}, true},
+		{"admin over viewer", RoleAdmin, RoleViewer, false, []Role{RoleMember}, true},
+		{"admin over admin", RoleAdmin, RoleAdmin, false, []Role{}, false},
+		{"admin over owner", RoleAdmin, RoleOwner, false, []Role{}, false},
+		{"owner over self", RoleOwner, RoleOwner, true, []Role{}, false},
+		{"member over viewer", RoleMember, RoleViewer, false, []Role{}, false},
+		{"viewer over member", RoleViewer, RoleMember, false, []Role{}, false},
+		{"member leaving", RoleMember, RoleMember, true, []Role{}, true},
+		{"viewer leaving", RoleViewer, RoleViewer, true, []Role{}, true},
+		{"admin leaving", RoleAdmin, RoleAdmin, true, []Role{}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MemberCapabilitiesOf(tt.actor, tt.target, tt.isSelf)
+
+			if got.AssignableRoles == nil {
+				t.Error("AssignableRoles is nil, want an empty slice so it serializes as []")
+			}
+			if len(got.AssignableRoles) != len(tt.wantAssign) {
+				t.Fatalf("AssignableRoles = %v, want %v", got.AssignableRoles, tt.wantAssign)
+			}
+			for i, role := range tt.wantAssign {
+				if got.AssignableRoles[i] != role {
+					t.Errorf("AssignableRoles = %v, want %v", got.AssignableRoles, tt.wantAssign)
+				}
+			}
+			if got.CanRemove != tt.wantRemoval {
+				t.Errorf("CanRemove = %v, want %v", got.CanRemove, tt.wantRemoval)
+			}
+		})
+	}
+}
+
+func TestMemberCapabilitiesNeverOfferOwnershipAndMatchTheEnforcedRules(t *testing.T) {
+	for _, actor := range allRoles {
+		for _, target := range allRoles {
+			caps := MemberCapabilitiesOf(actor, target, false)
+			for _, role := range caps.AssignableRoles {
+				if role == RoleOwner {
+					t.Errorf("%s may assign OWNER to %s", actor, target)
+				}
+				if err := checkChangeRole(actor, target, role); err != nil {
+					t.Errorf("%s is offered %s for %s but the policy forbids it", actor, role, target)
+				}
+			}
 		}
 	}
 }

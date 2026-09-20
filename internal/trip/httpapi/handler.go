@@ -93,27 +93,44 @@ type transferRequest struct {
 }
 
 type tripResponse struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Destination string    `json:"destination"`
-	StartDate   string    `json:"startDate"`
-	EndDate     string    `json:"endDate"`
-	Timezone    string    `json:"timezone"`
-	Currency    string    `json:"currency"`
-	OwnerID     string    `json:"ownerId"`
-	MyRole      string    `json:"myRole"`
-	Version     int64     `json:"version"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID           string               `json:"id"`
+	Name         string               `json:"name"`
+	Destination  string               `json:"destination"`
+	StartDate    string               `json:"startDate"`
+	EndDate      string               `json:"endDate"`
+	Timezone     string               `json:"timezone"`
+	Currency     string               `json:"currency"`
+	OwnerID      string               `json:"ownerId"`
+	MyRole       string               `json:"myRole"`
+	Capabilities capabilitiesResponse `json:"capabilities"`
+	Version      int64                `json:"version"`
+	CreatedAt    time.Time            `json:"createdAt"`
+	UpdatedAt    time.Time            `json:"updatedAt"`
+}
+
+type capabilitiesResponse struct {
+	UpdateTrip        bool     `json:"updateTrip"`
+	ManageMembers     bool     `json:"manageMembers"`
+	WriteContent      bool     `json:"writeContent"`
+	DeleteTrip        bool     `json:"deleteTrip"`
+	TransferOwnership bool     `json:"transferOwnership"`
+	Leave             bool     `json:"leave"`
+	AddableRoles      []string `json:"addableRoles"`
 }
 
 type memberResponse struct {
-	UserID    string    `json:"userId"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	UserID       string                     `json:"userId"`
+	Name         string                     `json:"name"`
+	Email        string                     `json:"email"`
+	Role         string                     `json:"role"`
+	Capabilities memberCapabilitiesResponse `json:"capabilities"`
+	CreatedAt    time.Time                  `json:"createdAt"`
+	UpdatedAt    time.Time                  `json:"updatedAt"`
+}
+
+type memberCapabilitiesResponse struct {
+	AssignableRoles []string `json:"assignableRoles"`
+	CanRemove       bool     `json:"canRemove"`
 }
 
 type listResponse[T any] struct {
@@ -344,28 +361,50 @@ func pathID(r *http.Request, name string) (string, error) {
 func toTripResponse(v trip.View) tripResponse {
 	t := v.Trip
 	return tripResponse{
-		ID:          string(t.ID),
-		Name:        t.Name,
-		Destination: t.Destination,
-		StartDate:   string(t.StartDate),
-		EndDate:     string(t.EndDate),
-		Timezone:    string(t.Timezone),
-		Currency:    string(t.Currency),
-		OwnerID:     string(t.OwnerID()),
-		MyRole:      string(v.Role),
-		Version:     t.Version,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
+		ID:           string(t.ID),
+		Name:         t.Name,
+		Destination:  t.Destination,
+		StartDate:    string(t.StartDate),
+		EndDate:      string(t.EndDate),
+		Timezone:     string(t.Timezone),
+		Currency:     string(t.Currency),
+		OwnerID:      string(t.OwnerID()),
+		MyRole:       string(v.Role),
+		Capabilities: toCapabilitiesResponse(trip.CapabilitiesOf(v.Role)),
+		Version:      t.Version,
+		CreatedAt:    t.CreatedAt,
+		UpdatedAt:    t.UpdatedAt,
+	}
+}
+
+func toCapabilitiesResponse(c trip.Capabilities) capabilitiesResponse {
+	addable := make([]string, 0, len(c.AddableRoles))
+	for _, role := range c.AddableRoles {
+		addable = append(addable, string(role))
+	}
+	return capabilitiesResponse{
+		UpdateTrip:        c.UpdateTrip,
+		ManageMembers:     c.ManageMembers,
+		WriteContent:      c.WriteContent,
+		DeleteTrip:        c.DeleteTrip,
+		TransferOwnership: c.TransferOwnership,
+		Leave:             c.Leave,
+		AddableRoles:      addable,
 	}
 }
 
 func toMemberResponse(v trip.MemberView) memberResponse {
+	assignable := make([]string, 0, len(v.Capabilities.AssignableRoles))
+	for _, role := range v.Capabilities.AssignableRoles {
+		assignable = append(assignable, string(role))
+	}
 	return memberResponse{
-		UserID:    string(v.Member.UserID),
-		Name:      v.User.Name,
-		Email:     v.User.Email,
-		Role:      string(v.Member.Role),
-		CreatedAt: v.Member.CreatedAt,
-		UpdatedAt: v.Member.UpdatedAt,
+		UserID:       string(v.Member.UserID),
+		Name:         v.User.Name,
+		Email:        v.User.Email,
+		Role:         string(v.Member.Role),
+		Capabilities: memberCapabilitiesResponse{AssignableRoles: assignable, CanRemove: v.Capabilities.CanRemove},
+		CreatedAt:    v.Member.CreatedAt,
+		UpdatedAt:    v.Member.UpdatedAt,
 	}
 }

@@ -33,7 +33,6 @@ import (
 const (
 	shutdownTimeout = 10 * time.Second
 	startupTimeout  = 30 * time.Second
-	authRateLimit   = 10
 	authRateWindow  = time.Minute
 )
 
@@ -131,7 +130,7 @@ func newAuthAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, use
 	return authapi.New(authapi.Deps{
 		Logger:      logger,
 		Guard:       guard,
-		RateLimiter: httpx.NewRateLimiter(authRateLimit, authRateWindow, httpx.ClientIP(cfg.TrustProxy)),
+		RateLimiter: httpx.NewRateLimiter(cfg.AuthRateLimit, authRateWindow, httpx.ClientIP(cfg.TrustProxy)),
 		Register:    auth.NewRegister(users, sessions, hasher, cfg.RegistrationCode),
 		Login:       login,
 		Logout:      auth.NewLogout(sessions),

@@ -22,12 +22,16 @@ type Config struct {
 	LogLevel           slog.Level
 	CORSAllowedOrigins []string
 	TrustProxy         bool
+	AuthRateLimit      int
 	RegistrationCode   string
 	MongoDBURI         string
 	MongoDBDatabase    string
 }
 
-const minRegistrationCodeLength = 12
+const (
+	minRegistrationCodeLength = 12
+	defaultAuthRateLimit      = 10
+)
 
 func Load(getenv func(string) string) (Config, error) {
 	var (
@@ -61,6 +65,16 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, errors.New("TRUST_PROXY must be true or false"))
 		}
 		cfg.TrustProxy = trust
+	}
+
+	cfg.AuthRateLimit = defaultAuthRateLimit
+	if raw := getenv("AUTH_RATE_LIMIT"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 1 {
+			errs = append(errs, errors.New("AUTH_RATE_LIMIT must be a positive number"))
+		} else {
+			cfg.AuthRateLimit = limit
+		}
 	}
 
 	cfg.RegistrationCode = getenv("REGISTRATION_CODE")

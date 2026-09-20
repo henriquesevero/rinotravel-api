@@ -64,5 +64,5 @@ func (c *ChangeMemberRole) Execute(ctx context.Context, in ChangeMemberRoleInput
 	if len(users) > 0 {
 		target = users[0]
 	}
-	return memberViewOf(t, target), nil
+	return memberViewOf(t, target, in.ActorID, actorRole), nil
 }

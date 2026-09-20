@@ -75,3 +75,50 @@ func checkRemoveMember(actor, target Role, isSelf bool) error {
 	}
 	return nil
 }
+
+type Capabilities struct {
+	UpdateTrip        bool
+	ManageMembers     bool
+	WriteContent      bool
+	DeleteTrip        bool
+	TransferOwnership bool
+	Leave             bool
+	AddableRoles      []Role
+}
+
+func CapabilitiesOf(role Role) Capabilities {
+	addable := []Role{}
+	for _, candidate := range []Role{RoleAdmin, RoleMember, RoleViewer} {
+		if checkAddMember(role, candidate) == nil {
+			addable = append(addable, candidate)
+		}
+	}
+	return Capabilities{
+		UpdateTrip:        Can(role, ActionUpdateTrip),
+		ManageMembers:     Can(role, ActionManageMembers),
+		WriteContent:      Can(role, ActionWriteContent),
+		DeleteTrip:        Can(role, ActionDeleteTrip),
+		TransferOwnership: Can(role, ActionTransferOwnership),
+		Leave:             Can(role, ActionRead) && role != RoleOwner,
+		AddableRoles:      addable,
+	}
+}
+
+type MemberCapabilities struct {
+	AssignableRoles []Role
+	CanRemove       bool
+}
+
+func MemberCapabilitiesOf(actor, target Role, isSelf bool) MemberCapabilities {
+	caps := MemberCapabilities{AssignableRoles: []Role{}}
+	if target == RoleOwner {
+		return caps
+	}
+	for _, role := range []Role{RoleAdmin, RoleMember, RoleViewer} {
+		if role != target && checkChangeRole(actor, target, role) == nil {
+			caps.AssignableRoles = append(caps.AssignableRoles, role)
+		}
+	}
+	caps.CanRemove = checkRemoveMember(actor, target, isSelf) == nil
+	return caps
+}

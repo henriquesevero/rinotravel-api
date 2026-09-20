@@ -42,6 +42,9 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	if cfg.TrustProxy {
 		t.Error("TrustProxy = true, want false by default")
 	}
+	if cfg.AuthRateLimit != 10 {
+		t.Errorf("AuthRateLimit = %d, want 10 by default", cfg.AuthRateLimit)
+	}
 }
 
 func TestLoad_ReadsAllValues(t *testing.T) {
@@ -51,6 +54,7 @@ func TestLoad_ReadsAllValues(t *testing.T) {
 	values["LOG_LEVEL"] = "debug"
 	values["CORS_ALLOWED_ORIGINS"] = " https://a.example , https://b.example,,"
 	values["TRUST_PROXY"] = "true"
+	values["AUTH_RATE_LIMIT"] = "250"
 
 	cfg, err := config.Load(env(values))
 	if err != nil {
@@ -66,7 +70,7 @@ func TestLoad_ReadsAllValues(t *testing.T) {
 	if cfg.MongoDBURI != values["MONGODB_URI"] || cfg.MongoDBDatabase != values["MONGODB_DATABASE"] {
 		t.Errorf("unexpected mongodb config: %+v", cfg)
 	}
-	if !cfg.TrustProxy || cfg.RegistrationCode != values["REGISTRATION_CODE"] {
+	if !cfg.TrustProxy || cfg.AuthRateLimit != 250 || cfg.RegistrationCode != values["REGISTRATION_CODE"] {
 		t.Errorf("unexpected auth config: %+v", cfg)
 	}
 }
@@ -83,6 +87,8 @@ func TestLoad_RejectsInvalidValues(t *testing.T) {
 		{"port out of range", func(v map[string]string) { v["PORT"] = "70000" }, "PORT"},
 		{"unknown log level", func(v map[string]string) { v["LOG_LEVEL"] = "verbose" }, "LOG_LEVEL"},
 		{"missing mongodb uri", func(v map[string]string) { delete(v, "MONGODB_URI") }, "MONGODB_URI"},
+		{"non numeric auth rate limit", func(v map[string]string) { v["AUTH_RATE_LIMIT"] = "many" }, "AUTH_RATE_LIMIT"},
+		{"zero auth rate limit", func(v map[string]string) { v["AUTH_RATE_LIMIT"] = "0" }, "AUTH_RATE_LIMIT"},
 		{"non boolean trust proxy", func(v map[string]string) { v["TRUST_PROXY"] = "maybe" }, "TRUST_PROXY"},
 		{"missing registration code", func(v map[string]string) { delete(v, "REGISTRATION_CODE") }, "REGISTRATION_CODE"},
 		{"short registration code", func(v map[string]string) { v["REGISTRATION_CODE"] = "short" }, "REGISTRATION_CODE"},

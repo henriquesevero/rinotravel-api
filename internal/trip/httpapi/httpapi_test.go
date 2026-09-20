@@ -480,3 +480,68 @@ func TestOneUsersTripsNeverLeakToAnother(t *testing.T) {
 		t.Errorf("the trip was changed by an outsider: %v", got)
 	}
 }
+
+func TestCapabilitiesReflectTheCallersRole(t *testing.T) {
+	e := newEnv(t)
+	ana, bia, caio, davi := e.signup(t, "ana"), e.signup(t, "bia"), e.signup(t, "caio"), e.signup(t, "davi")
+	id := e.createTrip(t, ana)["id"].(string)
+	e.addMember(t, id, ana, bia, "ADMIN")
+	e.addMember(t, id, ana, caio, "MEMBER")
+	e.addMember(t, id, ana, davi, "VIEWER")
+
+	capsOf := func(tok string) map[string]any {
+		return decode(t, e.do(http.MethodGet, "/api/v1/trips/"+id, tok, ""))["capabilities"].(map[string]any)
+	}
+
+	wants := map[string]struct {
+		token string
+		caps  map[string]bool
+	}{
+		"owner":  {ana.token, map[string]bool{"updateTrip": true, "manageMembers": true, "writeContent": true, "deleteTrip": true, "transferOwnership": true, "leave": false}},
+		"admin":  {bia.token, map[string]bool{"updateTrip": true, "manageMembers": true, "writeContent": true, "deleteTrip": false, "transferOwnership": false, "leave": true}},
+		"member": {caio.token, map[string]bool{"updateTrip": false, "manageMembers": false, "writeContent": true, "deleteTrip": false, "transferOwnership": false, "leave": true}},
+		"viewer": {davi.token, map[string]bool{"updateTrip": false, "manageMembers": false, "writeContent": false, "deleteTrip": false, "transferOwnership": false, "leave": true}},
+	}
+	for role, want := range wants {
+		got := capsOf(want.token)
+		for key, value := range want.caps {
+			if got[key] != value {
+				t.Errorf("%s: capabilities.%s = %v, want %v", role, key, got[key], value)
+			}
+		}
+	}
+
+	addable := func(tok string) string { return fmt.Sprint(capsOf(tok)["addableRoles"]) }
+	if addable(ana.token) != "[ADMIN MEMBER VIEWER]" || addable(bia.token) != "[MEMBER VIEWER]" || addable(caio.token) != "[]" || addable(davi.token) != "[]" {
+		t.Errorf("addableRoles: owner=%s admin=%s member=%s viewer=%s", addable(ana.token), addable(bia.token), addable(caio.token), addable(davi.token))
+	}
+}
+
+func TestMemberCapabilitiesDependOnWhoIsAsking(t *testing.T) {
+	e := newEnv(t)
+	ana, bia, caio := e.signup(t, "ana"), e.signup(t, "bia"), e.signup(t, "caio")
+	id := e.createTrip(t, ana)["id"].(string)
+	e.addMember(t, id, ana, bia, "ADMIN")
+	e.addMember(t, id, ana, caio, "MEMBER")
+
+	summary := func(tok string) map[string]string {
+		out := map[string]string{}
+		items := decode(t, e.do(http.MethodGet, "/api/v1/trips/"+id+"/members", tok, ""))["items"].([]any)
+		for _, item := range items {
+			m := item.(map[string]any)
+			caps := m["capabilities"].(map[string]any)
+			out[m["name"].(string)] = fmt.Sprintf("%v remove=%v", caps["assignableRoles"], caps["canRemove"])
+		}
+		return out
+	}
+
+	if got := summary(ana.token); got["ana"] != "[] remove=false" || got["bia"] != "[MEMBER VIEWER] remove=true" || got["caio"] != "[ADMIN VIEWER] remove=true" {
+		t.Errorf("as owner: %v", got)
+	}
+	if got := summary(bia.token); got["ana"] != "[] remove=false" || got["bia"] != "[] remove=true" || got["caio"] != "[VIEWER] remove=true" {
+		t.Errorf("as admin: %v", got)
+	}
+	if got := summary(caio.token); got["ana"] != "[] remove=false" || got["bia"] != "[] remove=false" || got["caio"] != "[] remove=true" {
+		t.Errorf("as member: %v", got)
+	}
+}

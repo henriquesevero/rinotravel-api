@@ -55,13 +55,13 @@ func (a *AddMember) Execute(ctx context.Context, in AddMemberInput) (MemberView,
 	if err := save(ctx, a.trips, t); err != nil {
 		return MemberView{}, err
 	}
-	return memberViewOf(t, target), nil
+	return memberViewOf(t, target, in.ActorID, actorRole), nil
 }
 
-func memberViewOf(t Trip, u user.User) MemberView {
+func memberViewOf(t Trip, u user.User, actorID user.ID, actorRole Role) MemberView {
 	for _, m := range t.Members {
 		if m.UserID == u.ID {
-			return MemberView{Member: m, User: u}
+			return MemberView{Member: m, User: u, Capabilities: MemberCapabilitiesOf(actorRole, m.Role, m.UserID == actorID)}
 		}
 	}
 	return MemberView{User: u}

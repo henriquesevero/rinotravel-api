@@ -184,6 +184,7 @@ Os arquivos `.env` são carregados pelo shell: mantenha as aspas em valores com 
 | `PORT` | não | `8080` | porta HTTP |
 | `LOG_LEVEL` | não | `info` | `debug`, `info`, `warn` ou `error` |
 | `CORS_ALLOWED_ORIGINS` | não | vazio | origens permitidas, separadas por vírgula |
+| `AUTH_RATE_LIMIT` | não | `10` | requisições por minuto, por IP, em `register` e `login` |
 | `TRUST_PROXY` | não | `false` | `true` quando há um proxy reverso confiável na frente (usa o último `X-Forwarded-For`) |
 
 A aplicação não sobe se alguma variável obrigatória estiver ausente ou inválida, e lista todos os problemas de uma vez. O `.env` está no `.gitignore`: nunca commite credenciais. Em staging e production, configure as variáveis no provedor de deploy.

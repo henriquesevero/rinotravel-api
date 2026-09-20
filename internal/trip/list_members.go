@@ -41,7 +41,11 @@ func (l *ListMembers) Execute(ctx context.Context, id ID, actor user.ID) ([]Memb
 
 	views := make([]MemberView, 0, len(t.Members))
 	for _, m := range t.Members {
-		views = append(views, MemberView{Member: m, User: byID[m.UserID]})
+		views = append(views, MemberView{
+			Member:       m,
+			User:         byID[m.UserID],
+			Capabilities: MemberCapabilitiesOf(role, m.Role, m.UserID == actor),
+		})
 	}
 	slices.SortStableFunc(views, func(a, b MemberView) int {
 		if rank := roleRank(a.Member.Role) - roleRank(b.Member.Role); rank != 0 {
