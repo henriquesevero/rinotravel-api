@@ -19,7 +19,7 @@ services:
 
   # S3-compatible storage for local development and integration tests (documents feature).
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: minioadmin

@@ -123,3 +123,30 @@ func TestLoad_ReportsAllProblemsAtOnce(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_ReadsOptionalIntegrations(t *testing.T) {
+	values := validEnv()
+	cfg, err := config.Load(env(values))
+	if err != nil || cfg.S3Bucket != "" || cfg.S3Region != "us-east-1" || cfg.GoogleMapsAPIKey != "" {
+		t.Fatalf("defaults: %+v, %v", cfg, err)
+	}
+
+	values["S3_BUCKET"], values["S3_REGION"], values["S3_ENDPOINT"] = "docs", "sa-east-1", "http://localhost:9000"
+	values["S3_ACCESS_KEY_ID"], values["S3_SECRET_ACCESS_KEY"], values["GOOGLE_MAPS_API_KEY"] = "id", "secret", "gkey"
+	cfg, err = config.Load(env(values))
+	if err != nil || cfg.S3Bucket != "docs" || cfg.S3Region != "sa-east-1" || cfg.S3Endpoint != "http://localhost:9000" ||
+		cfg.S3AccessKeyID != "id" || cfg.S3SecretAccessKey != "secret" || cfg.GoogleMapsAPIKey != "gkey" {
+		t.Errorf("configured: %+v, %v", cfg, err)
+	}
+}
+
+func TestLoad_S3CredentialsMustComeInPairs(t *testing.T) {
+	values := validEnv()
+	values["S3_ACCESS_KEY_ID"] = "id"
+
+	_, err := config.Load(env(values))
+
+	if err == nil || !strings.Contains(err.Error(), "S3_ACCESS_KEY_ID") {
+		t.Errorf("error = %v, want a complaint about half-set credentials", err)
+	}
+}

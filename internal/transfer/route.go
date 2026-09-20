@@ -12,8 +12,6 @@ import (
 	"rinotravel-api/internal/user"
 )
 
-const providerGoogle = "google"
-
 type RouteRequest struct {
 	Origin      kernel.Location
 	Destination kernel.Location

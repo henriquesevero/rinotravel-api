@@ -1,6 +1,7 @@
 package kernel_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,8 +12,8 @@ import (
 
 func fieldMap(t *testing.T, err error) map[string]string {
 	t.Helper()
-	appErr, ok := err.(*apperror.Error)
-	if !ok || appErr.Kind != apperror.KindValidation {
+	var appErr *apperror.Error
+	if !errors.As(err, &appErr) || appErr.Kind != apperror.KindValidation {
 		t.Fatalf("error = %v, want a validation error", err)
 	}
 	out := map[string]string{}

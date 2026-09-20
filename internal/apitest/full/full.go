@@ -6,6 +6,8 @@ import (
 	"context"
 	"testing"
 
+	"time"
+
 	"rinotravel-api/internal/apitest"
 	"rinotravel-api/internal/booking"
 	bookingapi "rinotravel-api/internal/booking/httpapi"
@@ -26,7 +28,6 @@ import (
 	"rinotravel-api/internal/transfer"
 	transferapi "rinotravel-api/internal/transfer/httpapi"
 	tripapi "rinotravel-api/internal/trip/httpapi"
-	"time"
 )
 
 type Stack struct {

@@ -33,9 +33,8 @@ func newEnv(sources ...itinerary.EntrySource) env {
 }
 
 func str(s string) *string { return &s }
-func num(n int) *int       { return &n }
 
-func requireApp(t *testing.T, err error, kind apperror.Kind, code string) *apperror.Error {
+func appErrorOf(t *testing.T, err error, kind apperror.Kind, code string) *apperror.Error {
 	t.Helper()
 	var appErr *apperror.Error
 	if !errors.As(err, &appErr) || appErr.Kind != kind || appErr.Code != code {
@@ -44,9 +43,14 @@ func requireApp(t *testing.T, err error, kind apperror.Kind, code string) *apper
 	return appErr
 }
 
+func requireApp(t *testing.T, err error, kind apperror.Kind, code string) {
+	t.Helper()
+	_ = appErrorOf(t, err, kind, code)
+}
+
 func invalidFields(t *testing.T, err error) map[string]bool {
 	t.Helper()
-	appErr := requireApp(t, err, apperror.KindValidation, "validation_failed")
+	appErr := appErrorOf(t, err, apperror.KindValidation, "validation_failed")
 	out := map[string]bool{}
 	for _, f := range appErr.Fields {
 		out[f.Field] = true
