@@ -127,26 +127,34 @@ func TestLoad_ReportsAllProblemsAtOnce(t *testing.T) {
 func TestLoad_ReadsOptionalIntegrations(t *testing.T) {
 	values := validEnv()
 	cfg, err := config.Load(env(values))
-	if err != nil || cfg.S3Bucket != "" || cfg.S3Region != "us-east-1" || cfg.GoogleMapsAPIKey != "" {
+	if err != nil || cfg.StorageSigningSecret != "" || cfg.GoogleMapsAPIKey != "" {
 		t.Fatalf("defaults: %+v, %v", cfg, err)
 	}
 
-	values["S3_BUCKET"], values["S3_REGION"], values["S3_ENDPOINT"] = "docs", "sa-east-1", "http://localhost:9000"
-	values["S3_ACCESS_KEY_ID"], values["S3_SECRET_ACCESS_KEY"], values["GOOGLE_MAPS_API_KEY"] = "id", "secret", "gkey"
+	values["STORAGE_SIGNING_SECRET"] = strings.Repeat("s", 32)
+	values["API_PUBLIC_URL"] = "https://api.example.com"
+	values["GOOGLE_MAPS_API_KEY"] = "gkey"
 	cfg, err = config.Load(env(values))
-	if err != nil || cfg.S3Bucket != "docs" || cfg.S3Region != "sa-east-1" || cfg.S3Endpoint != "http://localhost:9000" ||
-		cfg.S3AccessKeyID != "id" || cfg.S3SecretAccessKey != "secret" || cfg.GoogleMapsAPIKey != "gkey" {
+	if err != nil || cfg.StorageSigningSecret != values["STORAGE_SIGNING_SECRET"] || cfg.APIPublicURL != "https://api.example.com" || cfg.GoogleMapsAPIKey != "gkey" {
 		t.Errorf("configured: %+v, %v", cfg, err)
 	}
 }
 
-func TestLoad_S3CredentialsMustComeInPairs(t *testing.T) {
+func TestLoad_StorageSecretRules(t *testing.T) {
 	values := validEnv()
-	values["S3_ACCESS_KEY_ID"] = "id"
+	values["STORAGE_SIGNING_SECRET"] = "too-short"
+	if _, err := config.Load(env(values)); err == nil || !strings.Contains(err.Error(), "STORAGE_SIGNING_SECRET") {
+		t.Errorf("a short secret must be rejected, got %v", err)
+	}
 
-	_, err := config.Load(env(values))
+	values["STORAGE_SIGNING_SECRET"] = strings.Repeat("s", 32)
+	cfg, err := config.Load(env(values))
+	if err != nil || cfg.APIPublicURL != "http://localhost:8080" {
+		t.Errorf("development derives the public URL: %+v, %v", cfg, err)
+	}
 
-	if err == nil || !strings.Contains(err.Error(), "S3_ACCESS_KEY_ID") {
-		t.Errorf("error = %v, want a complaint about half-set credentials", err)
+	values["APP_ENV"] = "production"
+	if _, err := config.Load(env(values)); err == nil || !strings.Contains(err.Error(), "API_PUBLIC_URL") {
+		t.Errorf("production must state its public URL, got %v", err)
 	}
 }

@@ -27,12 +27,11 @@ type Config struct {
 	MongoDBURI         string
 	MongoDBDatabase    string
 
-	// S3 settings are optional: without a bucket the documents feature is not mounted.
-	S3Bucket          string
-	S3Region          string
-	S3Endpoint        string
-	S3AccessKeyID     string
-	S3SecretAccessKey string
+	// StorageSigningSecret enables the documents feature: files are stored in MongoDB (GridFS) and
+	// the API signs its own upload and download links with this secret.
+	StorageSigningSecret string
+	// APIPublicURL is where clients reach this API; the signed links point at it.
+	APIPublicURL string
 
 	// GoogleMapsAPIKey is optional: without it the place search and route planning endpoints are not mounted.
 	GoogleMapsAPIKey string
@@ -40,6 +39,7 @@ type Config struct {
 
 const (
 	minRegistrationCodeLength = 12
+	minStorageSecretLength    = 32
 	defaultAuthRateLimit      = 10
 )
 
@@ -92,13 +92,19 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, fmt.Errorf("REGISTRATION_CODE is required and must have at least %d characters", minRegistrationCodeLength))
 	}
 
-	cfg.S3Bucket = getenv("S3_BUCKET")
-	cfg.S3Region = valueOrDefault(getenv("S3_REGION"), "us-east-1")
-	cfg.S3Endpoint = getenv("S3_ENDPOINT")
-	cfg.S3AccessKeyID = getenv("S3_ACCESS_KEY_ID")
-	cfg.S3SecretAccessKey = getenv("S3_SECRET_ACCESS_KEY")
-	if (cfg.S3AccessKeyID == "") != (cfg.S3SecretAccessKey == "") {
-		errs = append(errs, errors.New("S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be set together"))
+	cfg.StorageSigningSecret = getenv("STORAGE_SIGNING_SECRET")
+	cfg.APIPublicURL = getenv("API_PUBLIC_URL")
+	if cfg.StorageSigningSecret != "" {
+		if len(cfg.StorageSigningSecret) < minStorageSecretLength {
+			errs = append(errs, fmt.Errorf("STORAGE_SIGNING_SECRET must have at least %d characters", minStorageSecretLength))
+		}
+		if cfg.APIPublicURL == "" {
+			if cfg.Env == Development {
+				cfg.APIPublicURL = "http://localhost" + cfg.HTTPAddr
+			} else {
+				errs = append(errs, errors.New("API_PUBLIC_URL is required when STORAGE_SIGNING_SECRET is set"))
+			}
+		}
 	}
 	cfg.GoogleMapsAPIKey = getenv("GOOGLE_MAPS_API_KEY")
 

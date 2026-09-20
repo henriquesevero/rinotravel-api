@@ -17,9 +17,9 @@ import (
 	bookingapi "rinotravel-api/internal/booking/httpapi"
 	bookingmongo "rinotravel-api/internal/booking/mongorepo"
 	"rinotravel-api/internal/document"
+	"rinotravel-api/internal/document/gridfs"
 	documentapi "rinotravel-api/internal/document/httpapi"
 	documentmongo "rinotravel-api/internal/document/mongorepo"
-	"rinotravel-api/internal/document/s3storage"
 	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/itinerary"
 	itineraryapi "rinotravel-api/internal/itinerary/httpapi"
@@ -138,11 +138,8 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	transferHandler := transferapi.New(transferDeps)
 	reg.add(transferHandler, transferHandler.SyncSources()...)
 
-	if d.Config.S3Bucket != "" {
-		storage, err := s3storage.New(ctx, s3storage.Config{
-			Bucket: d.Config.S3Bucket, Region: d.Config.S3Region, Endpoint: d.Config.S3Endpoint,
-			AccessKeyID: d.Config.S3AccessKeyID, SecretAccessKey: d.Config.S3SecretAccessKey,
-		})
+	if d.Config.StorageSigningSecret != "" {
+		storage, err := gridfs.New(d.DB, gridfs.Config{Secret: d.Config.StorageSigningSecret, PublicURL: d.Config.APIPublicURL}, d.Logger)
 		if err != nil {
 			return nil, err
 		}
@@ -151,8 +148,9 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 			Documents: document.NewDocuments(documents, authz, storage, string(d.Config.Env), d.Logger),
 		})
 		reg.add(documentHandler, documentHandler.SyncSource())
+		reg.add(storage)
 	} else {
-		d.Logger.Info("documents disabled: S3_BUCKET is not set")
+		d.Logger.Info("documents disabled: STORAGE_SIGNING_SECRET is not set")
 	}
 
 	itineraryHandler := itineraryapi.New(itineraryapi.Deps{

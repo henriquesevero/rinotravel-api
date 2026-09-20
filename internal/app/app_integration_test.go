@@ -15,13 +15,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"rinotravel-api/internal/app"
-	"rinotravel-api/internal/document/s3storage"
 	"rinotravel-api/internal/platform/config"
 	"rinotravel-api/internal/platform/ids"
 	"rinotravel-api/internal/platform/mongodb/mongotest"
@@ -59,25 +54,23 @@ func (a *api) must(method, path, body string, want int) map[string]any {
 func newApp(t *testing.T) *api {
 	t.Helper()
 	ctx := context.Background()
+
+	// Signed file links point at the API's own address, so the server must exist before the app is built.
+	a := &api{t: t}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.handler.ServeHTTP(w, r) }))
+	t.Cleanup(srv.Close)
+
 	cfg := config.Config{
 		Env: config.Development, AuthRateLimit: 100000, RegistrationCode: "dev-registration-code",
-		S3Bucket: "rinotravel-it-" + ids.New()[24:], S3Region: "us-east-1", S3Endpoint: "http://localhost:9000",
-		S3AccessKeyID: "minioadmin", S3SecretAccessKey: "minioadmin",
+		StorageSigningSecret: strings.Repeat("s", 32), APIPublicURL: srv.URL,
 	}
-	storage, err := s3storage.New(ctx, s3storage.Config{Bucket: cfg.S3Bucket, Region: cfg.S3Region, Endpoint: cfg.S3Endpoint, AccessKeyID: cfg.S3AccessKeyID, SecretAccessKey: cfg.S3SecretAccessKey})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := storage.Client().CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(cfg.S3Bucket)}); err != nil {
-		t.Skipf("MinIO is not reachable on localhost:9000 (docker compose up -d minio): %v", err)
-	}
-
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	modules, err := app.Build(ctx, app.Deps{Logger: logger, Config: cfg, DB: mongotest.Database(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &api{t: t, handler: server.NewHandler(server.Options{Logger: logger, Modules: modules})}
+	a.handler = server.NewHandler(server.Options{Logger: logger, Modules: modules})
+	return a
 }
 
 func TestWholeApplicationAgainstRealInfrastructure(t *testing.T) {
@@ -141,36 +134,34 @@ func TestWholeApplicationAgainstRealInfrastructure(t *testing.T) {
 		}
 	})
 
-	t.Run("documents travel through signed URLs to the real store", func(t *testing.T) {
+	t.Run("documents are stored in MongoDB GridFS behind signed links", func(t *testing.T) {
 		content := []byte("%PDF-1.4 fake ticket content")
 		sum := sha256.Sum256(content)
 		checksum := hex.EncodeToString(sum[:])
-		init := a.must("POST", base+"/documents", fmt.Sprintf(`{"name":"Ticket","type":"TICKET","fileName":"ticket.pdf","mimeType":"application/pdf","size":%d,"checksum":%q}`, len(content), checksum), 201)
-		id := init["document"].(map[string]any)["id"].(string)
-		upload := init["upload"].(map[string]any)
-
-		put := func(data []byte, checksumHeader string) int {
+		declare := func(name string) map[string]any {
+			return a.must("POST", base+"/documents", fmt.Sprintf(`{"name":%q,"type":"TICKET","fileName":"ticket.pdf","mimeType":"application/pdf","size":%d,"checksum":%q}`, name, len(content), checksum), 201)
+		}
+		put := func(upload map[string]any, data []byte) (int, string) {
 			req, _ := http.NewRequest(upload["method"].(string), upload["url"].(string), bytes.NewReader(data))
-			for k, v := range upload["headers"].(map[string]any) {
-				req.Header.Set(k, v.(string))
-			}
-			if checksumHeader != "" {
-				req.Header.Set("X-Amz-Checksum-Sha256", checksumHeader)
-			}
+			req.Header.Set("Content-Type", "application/pdf")
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer resp.Body.Close()
-			return resp.StatusCode
+			body, _ := io.ReadAll(resp.Body)
+			return resp.StatusCode, string(body)
 		}
 
+		first := declare("Ticket")
+		id, upload := first["document"].(map[string]any)["id"].(string), first["upload"].(map[string]any)
 		a.must("POST", base+"/documents/"+id+"/complete", "", 422)
-		if code := put(content, ""); code != 200 {
-			t.Fatalf("upload to storage = %d", code)
+
+		if code, body := put(upload, content); code != http.StatusNoContent {
+			t.Fatalf("upload = %d %s", code, body)
 		}
 		done := a.must("POST", base+"/documents/"+id+"/complete", "", 200)
-		if done["status"] != "READY" || done["checksum"] != checksum {
+		if done["status"] != "READY" || done["checksum"] != checksum || done["size"] != float64(len(content)) {
 			t.Errorf("complete = %v", done)
 		}
 
@@ -179,49 +170,41 @@ func TestWholeApplicationAgainstRealInfrastructure(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
 		got, _ := io.ReadAll(resp.Body)
-		if !bytes.Equal(got, content) || !strings.Contains(resp.Header.Get("Content-Disposition"), `filename="ticket.pdf"`) {
-			t.Errorf("download = %q, disposition %q", got, resp.Header.Get("Content-Disposition"))
+		resp.Body.Close()
+		if !bytes.Equal(got, content) || resp.Header.Get("Content-Type") != "application/pdf" || !strings.Contains(resp.Header.Get("Content-Disposition"), `filename="ticket.pdf"`) ||
+			resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("Cache-Control") != "private, no-store" {
+			t.Errorf("download = %q, headers %v", got, resp.Header)
 		}
 
-		bad := a.must("POST", base+"/documents", fmt.Sprintf(`{"name":"Tampered","type":"OTHER","fileName":"x.pdf","mimeType":"application/pdf","size":%d,"checksum":%q}`, len(content), checksum), 201)
-		upload = bad["upload"].(map[string]any)
-		wrong := sha256.Sum256([]byte("something else"))
-		if code := put(content, hex2b64(wrong[:])); code == 200 {
-			t.Error("the storage accepted content that does not match the signed checksum")
+		second := declare("Tampered")
+		tampered := bytes.Repeat([]byte("x"), len(content))
+		if code, _ := put(second["upload"].(map[string]any), tampered); code != http.StatusUnprocessableEntity {
+			t.Errorf("content that does not match the declared checksum = %d, want 422", code)
+		}
+		secondID := second["document"].(map[string]any)["id"].(string)
+		a.must("POST", base+"/documents/"+secondID+"/complete", "", 422)
+		if code, _ := put(second["upload"].(map[string]any), content[:5]); code != http.StatusBadRequest {
+			t.Errorf("wrong length = %d, want 400", code)
+		}
+		if code, _ := put(second["upload"].(map[string]any), content); code != http.StatusNoContent {
+			t.Errorf("a valid retry after a rejected upload = %d", code)
+		}
+
+		forged := strings.Replace(upload["url"].(string), "/api/v1/storage/", "/api/v1/storage/x", 1)
+		if r, err := http.Get(forged); err == nil {
+			r.Body.Close()
+			if r.StatusCode != http.StatusForbidden {
+				t.Errorf("a forged link = %d, want 403", r.StatusCode)
+			}
+		}
+		if code, _ := put(dl, content); code != http.StatusForbidden {
+			t.Errorf("a download link must not accept uploads, got %d", code)
 		}
 
 		a.must("DELETE", base+"/documents/"+id, "", 204)
-		time.Sleep(200 * time.Millisecond)
-		if resp2, err := http.Get(dl["url"].(string)); err == nil {
-			resp2.Body.Close()
-			if resp2.StatusCode == 200 {
-				t.Error("the object must be removed from storage after the document is deleted")
-			}
+		if r, err := http.Get(dl["url"].(string)); err != nil || r.StatusCode != http.StatusNotFound {
+			t.Errorf("the stored file must be gone after the document is deleted")
 		}
 	})
-}
-
-func hex2b64(b []byte) string {
-	const table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-	var out strings.Builder
-	for i := 0; i < len(b); i += 3 {
-		var chunk [3]byte
-		n := copy(chunk[:], b[i:])
-		v := uint(chunk[0])<<16 | uint(chunk[1])<<8 | uint(chunk[2])
-		out.WriteByte(table[v>>18&63])
-		out.WriteByte(table[v>>12&63])
-		if n > 1 {
-			out.WriteByte(table[v>>6&63])
-		} else {
-			out.WriteByte('=')
-		}
-		if n > 2 {
-			out.WriteByte(table[v&63])
-		} else {
-			out.WriteByte('=')
-		}
-	}
-	return out.String()
 }
