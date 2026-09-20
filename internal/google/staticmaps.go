@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"rinotravel-api/internal/daymap"
 	"rinotravel-api/internal/kernel"
 	"rinotravel-api/internal/place"
 	"rinotravel-api/internal/transfer"
@@ -72,6 +73,43 @@ func staticMapQuery(spec transfer.MapSpec, withPath bool) url.Values {
 	return q
 }
 
+// dayTolerances are how coarse the route lines may get, in degrees (0.0001 is about 11 metres),
+// tried in turn until the request fits in a URL.
+var dayTolerances = []float64{0, 0.00005, 0.0002, 0.0008, 0.003}
+
+func staticDayURL(base, key string, spec daymap.DaySpec) string {
+	build := func(paths []string) string {
+		q := url.Values{}
+		q.Set("size", staticMapSize)
+		q.Set("scale", "2")
+		q.Set("maptype", "roadmap")
+		q.Set("format", "png")
+		if spec.Language != "" {
+			q.Set("language", spec.Language)
+		}
+		for _, stop := range spec.Stops {
+			q.Add("markers", "color:"+brandBlueMarker+"|label:"+stop.Label+"|"+point(stop.Location))
+		}
+		for _, path := range paths {
+			q.Add("path", "color:"+brandBlueMarker+"D0|weight:5|enc:"+path)
+		}
+		q.Set("key", key)
+		return base + "/maps/api/staticmap?" + q.Encode()
+	}
+
+	for _, tolerance := range dayTolerances {
+		paths := make([]string, 0, len(spec.Paths))
+		for _, path := range spec.Paths {
+			paths = append(paths, simplifyEncoded(path, tolerance))
+		}
+		if full := build(paths); len(full) <= maxStaticURL {
+			return full
+		}
+	}
+	// Even the coarsest lines do not fit: keep the stops, which are what matters most.
+	return build(nil)
+}
+
 // pinZoom is a street-level view: enough to recognise the block, not so close that it is only a roof.
 const pinZoom = "15"
 
@@ -111,6 +149,11 @@ func (s *StaticMaps) Render(ctx context.Context, spec transfer.MapSpec) (transfe
 // RenderPin draws one marker on a street-level map.
 func (s *StaticMaps) RenderPin(ctx context.Context, spec place.PinSpec) (kernel.MapImage, error) {
 	return s.fetch(ctx, staticPinURL(s.base, s.key, spec))
+}
+
+// RenderDay draws every stop of a day, numbered, with the route between each pair.
+func (s *StaticMaps) RenderDay(ctx context.Context, spec daymap.DaySpec) (kernel.MapImage, error) {
+	return s.fetch(ctx, staticDayURL(s.base, s.key, spec))
 }
 
 func (s *StaticMaps) fetch(ctx context.Context, target string) (kernel.MapImage, error) {

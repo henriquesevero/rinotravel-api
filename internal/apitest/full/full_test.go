@@ -621,6 +621,97 @@ func TestMapOfOnePlace(t *testing.T) {
 	}
 }
 
+func TestPlanTheDayOnAMap(t *testing.T) {
+	w := newWorld(t)
+	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: 12 * time.Minute, DistanceMeters: 2300, Polyline: "abc123"}}
+	w.Maps.Image = transfer.MapImage{Data: []byte("\x89PNG day"), ContentType: "image/png"}
+	stops := `[{"label":"Metropolitan Museum","location":{"name":"Met","latitude":40.7794,"longitude":-73.9632}},
+		{"label":"Almoço","location":{"name":"Katz's","address":"205 E Houston St"}},
+		{"label":"Jantar no mesmo lugar","location":{"name":"Katz's","address":"205 E Houston St"}},
+		{"label":"Top of the Rock","location":{"name":"Top of the Rock","latitude":40.7593,"longitude":-73.9794}}]`
+	body := `{"stops":` + stops + `,"mode":"WALKING","language":"pt-BR"}`
+
+	rec := w.Do("POST", w.base+"/maps/day", w.ana.Token, body)
+	res := apitest.Decode(t, rec)
+	legs := res["legs"].([]any)
+	if rec.Code != 200 || len(legs) != 3 {
+		t.Fatalf("plan = %d %s", rec.Code, rec.Body)
+	}
+	first := legs[0].(map[string]any)
+	if first["available"] != true || first["durationSeconds"] != float64(720) || first["distanceMeters"] != float64(2300) || first["polyline"] != "abc123" || first["from"] != float64(0) || first["to"] != float64(1) {
+		t.Errorf("first leg = %v", first)
+	}
+	// Two stops at the same place need no trip, so the provider is asked only twice.
+	same := legs[1].(map[string]any)
+	if same["available"] != true || same["durationSeconds"] != nil || w.Routes.Calls.Load() != 2 {
+		t.Errorf("same-place leg = %v after %d route calls, want a free leg and 2 calls", same, w.Routes.Calls.Load())
+	}
+	if res["image"] != nil {
+		t.Error("no picture was asked for")
+	}
+
+	// The picture is optional, numbered, and made from the legs already found.
+	withImage := apitest.Decode(t, w.Do("POST", w.base+"/maps/day", w.ana.Token, `{"stops":`+stops+`,"includeImage":true}`))
+	if image, _ := withImage["image"].(string); !strings.HasPrefix(image, "data:image/png;base64,") {
+		t.Errorf("image = %v", withImage["image"])
+	}
+	spec := w.Maps.Days[len(w.Maps.Days)-1]
+	if len(spec.Stops) != 4 || spec.Stops[0].Label != "1" || spec.Stops[3].Label != "4" || len(spec.Paths) != 2 {
+		t.Errorf("day spec = %+v, want 4 numbered stops and the 2 lines that exist", spec)
+	}
+
+	// Anyone who can read the trip may plan its map; strangers learn nothing.
+	if rec := w.Do("POST", w.base+"/maps/day", w.bia.Token, body); rec.Code != 200 {
+		t.Errorf("a viewer must see the day map: %d", rec.Code)
+	}
+	w.problem(t, "POST", "/maps/day", w.caio, body, 404, "trip_not_found")
+	apitest.RequireProblem(t, w.Do("POST", w.base+"/maps/day", "", body), 401, "unauthenticated")
+	w.problem(t, "POST", "/maps/day", w.ana, `{"stops":[{"location":{"name":"A"}}]}`, 422, "validation_failed")
+	w.problem(t, "POST", "/maps/day", w.ana, `{"stops":[{"location":{"name":"A"}},{"location":{}}]}`, 422, "validation_failed")
+	w.problem(t, "POST", "/maps/day", w.ana, `{"stops":[{"location":{"name":"A"}},{"location":{"name":"B"}}],"mode":"JETPACK"}`, 422, "validation_failed")
+}
+
+func TestPlanTheDayDegradesInsteadOfFailing(t *testing.T) {
+	w := newWorld(t)
+	w.Maps.Image = transfer.MapImage{Data: []byte("img"), ContentType: "image/png"}
+	body := `{"stops":[{"location":{"name":"A"}},{"location":{"name":"B"}},{"location":{"name":"C"}}],"includeImage":true}`
+
+	// The provider is down: the day still comes back, with no times invented.
+	w.Routes.Err = fmt.Errorf("routes down: secret-detail")
+	rec := w.Do("POST", w.base+"/maps/day", w.ana.Token, body)
+	res := apitest.Decode(t, rec)
+	for _, leg := range res["legs"].([]any) {
+		if leg.(map[string]any)["available"] == true {
+			t.Errorf("a leg with no route must not be marked available: %v", leg)
+		}
+	}
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "secret-detail") {
+		t.Errorf("plan = %d %s", rec.Code, rec.Body)
+	}
+	w.Routes.Err = nil
+
+	// A picture that cannot be drawn is left out; the legs are still useful.
+	w.Maps.Err = fmt.Errorf("static maps down")
+	res = apitest.Decode(t, w.Do("POST", w.base+"/maps/day", w.ana.Token, body))
+	if res["image"] != nil || len(res["legs"].([]any)) != 2 {
+		t.Errorf("res = %v", res)
+	}
+	w.Maps.Err = nil
+
+	// A spent monthly allowance stops the provider calls: legs go unavailable, nothing is billed.
+	w.Quota.Set(google.BucketRoutes, full.GoogleLimit)
+	before := w.Routes.Calls.Load()
+	res = apitest.Decode(t, w.Do("POST", w.base+"/maps/day", w.ana.Token, body))
+	if w.Routes.Calls.Load() != before {
+		t.Error("the route provider was called after the monthly limit was reached")
+	}
+	for _, leg := range res["legs"].([]any) {
+		if leg.(map[string]any)["available"] == true {
+			t.Errorf("leg = %v, want unavailable", leg)
+		}
+	}
+}
+
 func marshal(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)

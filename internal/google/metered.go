@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"rinotravel-api/internal/daymap"
 	"rinotravel-api/internal/kernel"
 	"rinotravel-api/internal/place"
 	"rinotravel-api/internal/quota"
@@ -119,4 +120,15 @@ func (m *MeteredMaps) RenderPin(ctx context.Context, spec place.PinSpec) (kernel
 		return kernel.MapImage{}, err
 	}
 	return pins.RenderPin(ctx, spec)
+}
+
+func (m *MeteredMaps) RenderDay(ctx context.Context, spec daymap.DaySpec) (kernel.MapImage, error) {
+	days, ok := m.inner.(daymap.ImageRenderer)
+	if !ok {
+		return kernel.MapImage{}, fmt.Errorf("map renderer cannot draw a day")
+	}
+	if err := m.meter.take(ctx); err != nil {
+		return kernel.MapImage{}, err
+	}
+	return days.RenderDay(ctx, spec)
 }

@@ -4,6 +4,7 @@ package full
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"time"
@@ -11,6 +12,8 @@ import (
 	"rinotravel-api/internal/apitest"
 	"rinotravel-api/internal/booking"
 	bookingapi "rinotravel-api/internal/booking/httpapi"
+	"rinotravel-api/internal/daymap"
+	daymapapi "rinotravel-api/internal/daymap/httpapi"
 	"rinotravel-api/internal/document"
 	"rinotravel-api/internal/document/documenttest"
 	documentapi "rinotravel-api/internal/document/httpapi"
@@ -64,11 +67,13 @@ func (f *FakePlaces) Details(context.Context, string, string) (place.Candidate, 
 type FakeRoutes struct {
 	Routes []transfer.Route
 	Err    error
+	Calls  atomic.Int32
 }
 
 func (f *FakeRoutes) Name() string { return "fake" }
 
 func (f *FakeRoutes) Compute(context.Context, transfer.RouteRequest) ([]transfer.Route, error) {
+	f.Calls.Add(1)
 	return f.Routes, f.Err
 }
 
@@ -78,6 +83,7 @@ type FakeMaps struct {
 	Err   error
 	Specs []transfer.MapSpec
 	Pins  []place.PinSpec
+	Days  []daymap.DaySpec
 }
 
 func (f *FakeMaps) Render(_ context.Context, spec transfer.MapSpec) (transfer.MapImage, error) {
@@ -87,6 +93,11 @@ func (f *FakeMaps) Render(_ context.Context, spec transfer.MapSpec) (transfer.Ma
 
 func (f *FakeMaps) RenderPin(_ context.Context, spec place.PinSpec) (kernel.MapImage, error) {
 	f.Pins = append(f.Pins, spec)
+	return f.Image, f.Err
+}
+
+func (f *FakeMaps) RenderDay(_ context.Context, spec daymap.DaySpec) (kernel.MapImage, error) {
+	f.Days = append(f.Days, spec)
 	return f.Image, f.Err
 }
 
@@ -139,7 +150,11 @@ func New(t *testing.T) *Stack {
 		}
 		engine := syncengine.NewEngine(authz, s.Log, synctest.Direct{}, sources...)
 
-		return []server.Module{placeH, bookingH, transferH, documentH, itineraryH, syncapi.New(e.Logger, e.Guard, engine)}
+		dayH := daymapapi.New(e.Logger, e.Guard,
+			daymap.NewService(routes, google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), e.Authz, e.Logger),
+			httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)))
+
+		return []server.Module{placeH, bookingH, transferH, documentH, itineraryH, dayH, syncapi.New(e.Logger, e.Guard, engine)}
 	})
 	return s
 }

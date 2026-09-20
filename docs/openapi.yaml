@@ -1501,6 +1501,41 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
 
+  /api/v1/trips/{tripId}/maps/day:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    post:
+      tags: [Itinerary]
+      operationId: planDayMap
+      summary: Planeja o mapa de um dia. Dado a lista de paradas em ordem, devolve o trecho entre cada par (tempo, distância e traçado) e, se pedido, uma imagem numerada. Só existe quando o servidor tem GOOGLE_MAPS_API_KEY
+      description: |
+        Um trecho sem rota encontrada volta com `available: false`, sem inventar tempo, e nunca derruba o dia inteiro.
+        Paradas consecutivas no mesmo lugar não geram trecho. O traçado (`polyline`) é para ser desenhado num mapa do
+        Google. Nada é guardado no servidor. Qualquer membro da viagem (inclusive LEITOR) pode pedir.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DayMapRequest'
+      responses:
+        '200':
+          description: Os trechos do dia.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DayMap'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
   /api/v1/trips/{tripId}/documents:
     parameters:
       - $ref: '#/components/parameters/TripId'
@@ -3138,6 +3173,69 @@ components:
           $ref: '#/components/schemas/Location'
         language:
           type: string
+
+    DayMapStop:
+      type: object
+      additionalProperties: false
+      required: [location]
+      properties:
+        label:
+          type: string
+        location:
+          $ref: '#/components/schemas/Location'
+
+    DayMapRequest:
+      type: object
+      additionalProperties: false
+      required: [stops]
+      properties:
+        stops:
+          type: array
+          minItems: 2
+          maxItems: 25
+          items:
+            $ref: '#/components/schemas/DayMapStop'
+        mode:
+          type: string
+          description: Como o dia é percorrido. Padrão TRANSIT.
+          enum: [TRANSIT, WALKING, DRIVING]
+        language:
+          type: string
+        includeImage:
+          type: boolean
+          description: Pede também uma imagem com todas as paradas numeradas e as rotas.
+
+    DayMapLeg:
+      type: object
+      required: [from, to, available]
+      properties:
+        from:
+          type: integer
+          description: Índice da parada de partida.
+        to:
+          type: integer
+        available:
+          type: boolean
+          description: Falso quando nenhuma rota foi encontrada.
+        durationSeconds:
+          type: integer
+        distanceMeters:
+          type: integer
+        polyline:
+          type: string
+          description: Traçado codificado (Google), para desenhar num mapa do Google.
+
+    DayMap:
+      type: object
+      required: [legs]
+      properties:
+        legs:
+          type: array
+          items:
+            $ref: '#/components/schemas/DayMapLeg'
+        image:
+          type: string
+          description: Data URI PNG, presente só se pedida e desenhada.
 
     MapRequest:
       type: object

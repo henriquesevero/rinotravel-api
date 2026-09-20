@@ -16,6 +16,8 @@ import (
 	"rinotravel-api/internal/booking"
 	bookingapi "rinotravel-api/internal/booking/httpapi"
 	bookingmongo "rinotravel-api/internal/booking/mongorepo"
+	"rinotravel-api/internal/daymap"
+	daymapapi "rinotravel-api/internal/daymap/httpapi"
 	"rinotravel-api/internal/document"
 	"rinotravel-api/internal/document/gridfs"
 	documentapi "rinotravel-api/internal/document/httpapi"
@@ -140,6 +142,9 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		transferDeps.Planner = transfer.NewPlanner(routeProvider, authz, d.Logger)
 		transferDeps.Maps = transfer.NewMaps(routeProvider, mapRenderer, authz, d.Logger)
 		transferDeps.MapLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
+		reg.add(daymapapi.New(d.Logger, guard,
+			daymap.NewService(routeProvider, mapRenderer.(daymap.ImageRenderer), authz, d.Logger),
+			httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))))
 	} else {
 		d.Logger.Info("place search and route planning disabled: GOOGLE_MAPS_API_KEY is not set")
 	}
