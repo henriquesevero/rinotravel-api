@@ -12,7 +12,12 @@ import (
 
 const seqCollection = "sync_counters"
 
+// WithTransaction runs fn atomically. When ctx already carries a transaction, fn joins it, so a
+// caller can group several repository writes (each of which opens its own transaction) into one.
 func WithTransaction(ctx context.Context, db *mongo.Database, fn func(ctx context.Context) error) error {
+	if mongo.SessionFromContext(ctx) != nil {
+		return fn(ctx)
+	}
 	session, err := db.Client().StartSession()
 	if err != nil {
 		return fmt.Errorf("start mongodb session: %w", err)
