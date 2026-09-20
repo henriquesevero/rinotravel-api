@@ -1,6 +1,7 @@
 package gridfs
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -33,14 +34,14 @@ func TestTokenRejectsTamperingWrongSecretAndExpiry(t *testing.T) {
 		"tampered signature": body + "." + strings.Repeat("A", len(sig)),
 	}
 	for name, bad := range cases {
-		if _, err := verify(secret, bad, now); err != errInvalidToken {
+		if _, err := verify(secret, bad, now); !errors.Is(err, errInvalidToken) {
 			t.Errorf("%s: error = %v, want errInvalidToken", name, err)
 		}
 	}
-	if _, err := verify(secret, token, now.Add(2*time.Minute)); err != errExpiredToken {
+	if _, err := verify(secret, token, now.Add(2*time.Minute)); !errors.Is(err, errExpiredToken) {
 		t.Errorf("expired token error = %v, want errExpiredToken", err)
 	}
-	if _, err := verify(secret, token, now.Add(time.Minute)); err != errExpiredToken {
+	if _, err := verify(secret, token, now.Add(time.Minute)); !errors.Is(err, errExpiredToken) {
 		t.Errorf("a token is invalid exactly at its deadline, got %v", err)
 	}
 }

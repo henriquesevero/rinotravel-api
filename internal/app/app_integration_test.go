@@ -198,8 +198,9 @@ func TestWholeApplicationAgainstRealInfrastructure(t *testing.T) {
 				t.Errorf("a forged link = %d, want 403", r.StatusCode)
 			}
 		}
-		if code, _ := put(dl, content); code != http.StatusForbidden {
-			t.Errorf("a download link must not accept uploads, got %d", code)
+		wrongOp, _ := http.NewRequest(http.MethodPut, dl["url"].(string), bytes.NewReader(content))
+		if r, err := http.DefaultClient.Do(wrongOp); err != nil || r.StatusCode != http.StatusForbidden {
+			t.Errorf("a download link must not accept uploads (err %v)", err)
 		}
 
 		a.must("DELETE", base+"/documents/"+id, "", 204)
