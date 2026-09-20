@@ -52,7 +52,7 @@ Não-membro recebe 404. A regra vive numa política pura do domínio (`Can(role,
 | 7 | **Pronta.** Flight e Hotel, com duração e fusos derivados |
 | 8 | **Pronta.** Transfer e etapas, com planejamento de rota |
 | 9 | **Pronta.** Documents no MongoDB GridFS (upload e download por link assinado, registrados no sync) |
-| 10 | **Pronta.** Adapters do Google (`PlaceProvider`, `RouteProvider`), com os ports nascendo aqui; opcionais, ligados pela chave |
+| 10 | **Pronta.** Adapters do Google (`PlaceProvider`, `RouteProvider`), com os ports nascendo aqui; opcionais, ligados pela chave, com teto mensal de chamadas contado no MongoDB (`GOOGLE_MONTHLY_LIMIT`) |
 
 Toda entidade nova a partir da fase 4 nasce sync-ready, e "registrar no sync" é critério de aceite da fase dela. Expense, Shopping e Checklist ficam fora até existirem; o sync é pluggable para recebê-los.
 

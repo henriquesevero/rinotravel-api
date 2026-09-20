@@ -35,12 +35,17 @@ type Config struct {
 
 	// GoogleMapsAPIKey is optional: without it the place search and route planning endpoints are not mounted.
 	GoogleMapsAPIKey string
+	// GoogleMonthlyLimit is how many Google calls each API (place search, route planning) may make
+	// per month before the application refuses them. 0 turns the ceiling off.
+	GoogleMonthlyLimit int
 }
 
 const (
 	minRegistrationCodeLength = 12
 	minStorageSecretLength    = 32
 	defaultAuthRateLimit      = 10
+	// defaultGoogleMonthlyLimit sits below the smallest free allowance (5,000 Pro calls) to leave a margin.
+	defaultGoogleMonthlyLimit = 4000
 )
 
 func Load(getenv func(string) string) (Config, error) {
@@ -107,6 +112,15 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	cfg.GoogleMapsAPIKey = getenv("GOOGLE_MAPS_API_KEY")
+	cfg.GoogleMonthlyLimit = defaultGoogleMonthlyLimit
+	if raw := getenv("GOOGLE_MONTHLY_LIMIT"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 0 {
+			errs = append(errs, errors.New("GOOGLE_MONTHLY_LIMIT must be a number of calls per month, or 0 for no limit"))
+		} else {
+			cfg.GoogleMonthlyLimit = limit
+		}
+	}
 
 	cfg.MongoDBURI = getenv("MONGODB_URI")
 	if cfg.MongoDBURI == "" {

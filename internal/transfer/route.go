@@ -2,11 +2,13 @@ package transfer
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"rinotravel-api/internal/apperror"
 	"rinotravel-api/internal/kernel"
+	"rinotravel-api/internal/quota"
 	"rinotravel-api/internal/resource"
 	"rinotravel-api/internal/trip"
 	"rinotravel-api/internal/user"
@@ -101,6 +103,9 @@ func (p *Planner) Plan(ctx context.Context, actor user.ID, tripID trip.ID, in Pl
 	}
 
 	routes, err := p.provider.Compute(ctx, RouteRequest{Origin: origin, Destination: destination, Mode: mode, DepartureAt: departure, Language: in.Language})
+	if errors.Is(err, quota.ErrExhausted) {
+		return nil, apperror.Unavailable("provider_quota_exhausted", "The monthly limit of route lookups was reached. It resets next month.")
+	}
 	if err != nil {
 		p.logger.ErrorContext(ctx, "route planning failed", slog.Any("error", err))
 		return nil, apperror.Unavailable("provider_unavailable", "Route planning is temporarily unavailable.")

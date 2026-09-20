@@ -14,12 +14,14 @@ import (
 	"rinotravel-api/internal/document"
 	"rinotravel-api/internal/document/documenttest"
 	documentapi "rinotravel-api/internal/document/httpapi"
+	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/itinerary"
 	itineraryapi "rinotravel-api/internal/itinerary/httpapi"
 	"rinotravel-api/internal/kernel"
 	"rinotravel-api/internal/place"
 	placeapi "rinotravel-api/internal/place/httpapi"
 	"rinotravel-api/internal/platform/httpx"
+	"rinotravel-api/internal/quota/quotatest"
 	"rinotravel-api/internal/resource/resourcetest"
 	"rinotravel-api/internal/server"
 	"rinotravel-api/internal/syncengine"
@@ -36,7 +38,12 @@ type Stack struct {
 	Places  *FakePlaces
 	Routes  *FakeRoutes
 	Log     *synctest.Log
+	// Quota is the monthly Google allowance the fakes are metered against, like in production.
+	Quota *quotatest.Counter
 }
+
+// GoogleLimit is the monthly allowance per API in the harness; tests use Quota.Set to spend it.
+const GoogleLimit = 1000
 
 type FakePlaces struct {
 	Results []place.Candidate
@@ -66,7 +73,7 @@ func (f *FakeRoutes) Compute(context.Context, transfer.RouteRequest) ([]transfer
 
 func New(t *testing.T) *Stack {
 	t.Helper()
-	s := &Stack{Storage: documenttest.NewStorage(), Places: &FakePlaces{}, Routes: &FakeRoutes{}, Log: synctest.NewLog()}
+	s := &Stack{Storage: documenttest.NewStorage(), Places: &FakePlaces{}, Routes: &FakeRoutes{}, Log: synctest.NewLog(), Quota: &quotatest.Counter{}}
 
 	s.Env = apitest.New(t, func(e apitest.Env) []server.Module {
 		authz := e.Authz
@@ -82,12 +89,12 @@ func New(t *testing.T) *Stack {
 		placesUC := place.NewPlaces(places, authz)
 		placeH := placeapi.New(placeapi.Deps{
 			Logger: e.Logger, Guard: e.Guard, Places: placesUC, Restaurants: place.NewRestaurants(restaurants, authz),
-			Search: place.NewSearchPlaces(s.Places, e.Logger), SearchLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
+			Search: place.NewSearchPlaces(google.NewMeteredPlaces(s.Places, s.Quota, GoogleLimit, e.Logger), e.Logger), SearchLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
 		})
 		bookingH := bookingapi.New(bookingapi.Deps{Logger: e.Logger, Guard: e.Guard, Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz)})
 		transferH := transferapi.New(transferapi.Deps{
 			Logger: e.Logger, Guard: e.Guard, Transfers: transfer.NewTransfers(transfers, authz),
-			Planner: transfer.NewPlanner(s.Routes, authz, e.Logger),
+			Planner: transfer.NewPlanner(google.NewMeteredRoutes(s.Routes, s.Quota, GoogleLimit, e.Logger), authz, e.Logger),
 		})
 		documentH := documentapi.New(documentapi.Deps{Logger: e.Logger, Guard: e.Guard, Documents: document.NewDocuments(documents, authz, s.Storage, "test", e.Logger)})
 		itineraryH := itineraryapi.New(itineraryapi.Deps{

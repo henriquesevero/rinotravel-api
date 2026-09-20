@@ -184,6 +184,8 @@ Os arquivos ficam no **MongoDB (GridFS)**, sem nenhum serviço externo de armaze
 
 Sem `GOOGLE_MAPS_API_KEY` a API sobe normalmente e as rotas do Google simplesmente não existem; o cadastro manual continua funcionando. Com a chave, ative no Google Cloud a **Places API (New)** e a **Routes API**, crie uma chave de servidor e restrinja-a a essas duas APIs. A chave nunca vai para o frontend.
 
+**Teto de gasto.** O Google não tem um modo "nunca me cobre": os orçamentos só enviam alertas. Por isso o backend conta as chamadas no MongoDB (coleção `provider_usage`, um documento por API e mês) e, ao atingir `GOOGLE_MONTHLY_LIMIT`, passa a recusar novas chamadas com `503 provider_quota_exhausted`, sem contatar o Google. O padrão de 4000 fica abaixo da menor franquia gratuita (5.000 chamadas), deixando margem para a diferença entre o mês do Google e o mês UTC usado na contagem. A chamada é contada antes de ser enviada e nunca devolvida, porque uma requisição que falha depois de sair ainda pode ser cobrada. Se o contador estiver indisponível, a chamada é recusada em vez de liberada. Um aviso vai para o log ao chegar em 80% do limite e a cada recusa. O contador é atômico: várias instâncias da API, ou requisições simultâneas, nunca passam do limite.
+
 ## Stack
 
 - Go 1.26+ (`net/http` com `ServeMux`, `log/slog`)
@@ -221,6 +223,7 @@ Os arquivos `.env` são carregados pelo shell: mantenha as aspas em valores com 
 | `STORAGE_SIGNING_SECRET` | não | vazio | segredo (mínimo de 32 caracteres) que assina os links de documentos. Vazio desliga os documentos |
 | `API_PUBLIC_URL` | com o segredo acima | | URL pela qual os clientes alcançam esta API; entra nos links assinados |
 | `GOOGLE_MAPS_API_KEY` | não | vazio | chave de servidor (Places API New e Routes API). Vazio desliga a busca de lugares e o cálculo de rotas |
+| `GOOGLE_MONTHLY_LIMIT` | não | `4000` | teto de chamadas ao Google por mês, para cada API (busca e rotas). `0` desliga o teto |
 
 A aplicação não sobe se alguma variável obrigatória estiver ausente ou inválida, e lista todos os problemas de uma vez. O `.env` está no `.gitignore`: nunca commite credenciais. Em staging e production, configure as variáveis no provedor de deploy.
 

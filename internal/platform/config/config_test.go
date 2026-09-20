@@ -140,6 +140,39 @@ func TestLoad_ReadsOptionalIntegrations(t *testing.T) {
 	}
 }
 
+func TestLoad_GoogleMonthlyLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    int
+		wantErr bool
+	}{
+		{"defaults below the smallest free allowance", "", 4000, false},
+		{"custom", "1500", 1500, false},
+		{"zero turns the ceiling off", "0", 0, false},
+		{"negative", "-1", 0, true},
+		{"not a number", "many", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			values := validEnv()
+			if tt.value != "" {
+				values["GOOGLE_MONTHLY_LIMIT"] = tt.value
+			}
+			cfg, err := config.Load(env(values))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.GoogleMonthlyLimit != tt.want {
+				t.Errorf("GoogleMonthlyLimit = %d, want %d", cfg.GoogleMonthlyLimit, tt.want)
+			}
+			if err != nil && !strings.Contains(err.Error(), "GOOGLE_MONTHLY_LIMIT") {
+				t.Errorf("error %q does not name the variable", err)
+			}
+		})
+	}
+}
+
 func TestLoad_StorageSecretRules(t *testing.T) {
 	values := validEnv()
 	values["STORAGE_SIGNING_SECRET"] = "too-short"

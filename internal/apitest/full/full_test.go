@@ -10,6 +10,7 @@ import (
 
 	"rinotravel-api/internal/apitest"
 	"rinotravel-api/internal/apitest/full"
+	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/kernel"
 	"rinotravel-api/internal/place"
 	"rinotravel-api/internal/transfer"
@@ -482,6 +483,39 @@ func TestPlaceSearchAndRoutePlanning(t *testing.T) {
 	w.problem(t, "POST", "/transfers/plan", w.ana, `{"origin":{},"destination":{}}`, 422, "validation_failed")
 	w.Routes.Err = fmt.Errorf("boom")
 	w.problem(t, "POST", "/transfers/plan", w.ana, plan, 503, "provider_unavailable")
+}
+
+func TestGoogleCallsStopAtTheMonthlyLimit(t *testing.T) {
+	w := newWorld(t)
+	w.Places.Results = []place.Candidate{{ProviderID: "ChIJ1", Name: "Senso-ji"}}
+	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: time.Minute}}
+	plan := `{"origin":{"name":"A"},"destination":{"name":"B"}}`
+
+	// Every allowed call is counted, one bucket per API.
+	if rec := w.Do("GET", "/api/v1/places/search?q=senso", w.ana.Token, ""); rec.Code != 200 {
+		t.Fatalf("search = %d %s", rec.Code, rec.Body)
+	}
+	w.Do("POST", w.base+"/transfers/plan", w.ana.Token, plan)
+	if w.Quota.Used(google.BucketPlaces) != 1 || w.Quota.Used(google.BucketRoutes) != 1 {
+		t.Errorf("used places=%d routes=%d, want 1 and 1", w.Quota.Used(google.BucketPlaces), w.Quota.Used(google.BucketRoutes))
+	}
+
+	// Once the places allowance is spent Google is never called again, but routes still work.
+	w.Quota.Set(google.BucketPlaces, full.GoogleLimit)
+	calls := len(w.Places.Queries)
+	body := apitest.RequireProblem(t, w.Do("GET", "/api/v1/places/search?q=senso", w.ana.Token, ""), 503, "provider_quota_exhausted")
+	if len(w.Places.Queries) != calls {
+		t.Error("Google was called after the monthly limit was reached")
+	}
+	if strings.Contains(fmt.Sprint(body), "google_places") {
+		t.Errorf("internal bucket names must not leak: %v", body)
+	}
+	if rec := w.Do("POST", w.base+"/transfers/plan", w.ana.Token, plan); rec.Code != 200 {
+		t.Errorf("routes must keep working while only places are exhausted: %d %s", rec.Code, rec.Body)
+	}
+
+	w.Quota.Set(google.BucketRoutes, full.GoogleLimit)
+	w.problem(t, "POST", "/transfers/plan", w.ana, plan, 503, "provider_quota_exhausted")
 }
 
 func marshal(t *testing.T, v any) string {

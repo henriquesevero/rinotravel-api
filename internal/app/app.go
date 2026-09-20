@@ -29,6 +29,7 @@ import (
 	placemongo "rinotravel-api/internal/place/mongorepo"
 	"rinotravel-api/internal/platform/config"
 	"rinotravel-api/internal/platform/httpx"
+	quotamongo "rinotravel-api/internal/quota/mongorepo"
 	"rinotravel-api/internal/server"
 	"rinotravel-api/internal/syncengine"
 	syncapi "rinotravel-api/internal/syncengine/httpapi"
@@ -120,9 +121,19 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	transferUC := transfer.NewTransfers(transfers, authz)
 	transferDeps := transferapi.Deps{Logger: d.Logger, Guard: guard, Transfers: transferUC}
 	if d.Config.GoogleMapsAPIKey != "" {
-		placesDeps.Search = place.NewSearchPlaces(google.NewPlaces(d.Config.GoogleMapsAPIKey), d.Logger)
+		var placeProvider place.PlaceProvider = google.NewPlaces(d.Config.GoogleMapsAPIKey)
+		var routeProvider transfer.RouteProvider = google.NewRoutes(d.Config.GoogleMapsAPIKey)
+		if limit := d.Config.GoogleMonthlyLimit; limit > 0 {
+			counter := quotamongo.New(d.DB)
+			placeProvider = google.NewMeteredPlaces(placeProvider, counter, limit, d.Logger)
+			routeProvider = google.NewMeteredRoutes(routeProvider, counter, limit, d.Logger)
+			d.Logger.Info("google calls are capped", slog.Int("monthly_limit_per_api", limit))
+		} else {
+			d.Logger.Warn("google calls are NOT capped: GOOGLE_MONTHLY_LIMIT is 0, usage past the free allowance is billed")
+		}
+		placesDeps.Search = place.NewSearchPlaces(placeProvider, d.Logger)
 		placesDeps.SearchLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
-		transferDeps.Planner = transfer.NewPlanner(google.NewRoutes(d.Config.GoogleMapsAPIKey), authz, d.Logger)
+		transferDeps.Planner = transfer.NewPlanner(routeProvider, authz, d.Logger)
 	} else {
 		d.Logger.Info("place search and route planning disabled: GOOGLE_MAPS_API_KEY is not set")
 	}

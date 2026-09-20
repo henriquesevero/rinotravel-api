@@ -1001,7 +1001,7 @@ paths:
           $ref: '#/components/responses/Unprocessable'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '502':
+        '503':
           $ref: '#/components/responses/Unavailable'
 
   /api/v1/trips/{tripId}/flights:
@@ -1424,7 +1424,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/Unprocessable'
-        '502':
+        '503':
           $ref: '#/components/responses/Unavailable'
 
   /api/v1/trips/{tripId}/documents:
@@ -1827,7 +1827,7 @@ components:
             $ref: '#/components/schemas/Problem'
 
     Unavailable:
-      description: O provedor externo (Google) está indisponível ou não respondeu a tempo.
+      description: O provedor externo (Google) está indisponível, não respondeu a tempo, ou o limite mensal de chamadas foi atingido (`provider_quota_exhausted`).
       content:
         application/problem+json:
           schema:
@@ -1879,6 +1879,7 @@ components:
         - object_not_found
         - place_not_found
         - provider_unavailable
+        - provider_quota_exhausted
         - size_mismatch
         - too_many_mutations
         - unknown_entity

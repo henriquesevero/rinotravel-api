@@ -2,12 +2,14 @@ package place
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"unicode/utf8"
 
 	"rinotravel-api/internal/apperror"
 	"rinotravel-api/internal/kernel"
+	"rinotravel-api/internal/quota"
 	"rinotravel-api/internal/user"
 )
 
@@ -54,6 +56,9 @@ func (s *SearchPlaces) Execute(ctx context.Context, _ user.ID, in SearchInput) (
 	}
 
 	found, err := s.provider.Search(ctx, query, loc.Coordinates, language(in.Language))
+	if errors.Is(err, quota.ErrExhausted) {
+		return nil, apperror.Unavailable("provider_quota_exhausted", "The monthly limit of place searches was reached. It resets next month.")
+	}
 	if err != nil {
 		s.logger.ErrorContext(ctx, "place search failed", slog.Any("error", err))
 		return nil, apperror.Unavailable("provider_unavailable", "Place search is temporarily unavailable.")
