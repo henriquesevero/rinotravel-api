@@ -15,6 +15,7 @@ import (
 const (
 	BucketPlaces = "google_places"
 	BucketRoutes = "google_routes"
+	BucketMaps   = "google_static_maps"
 )
 
 // meter takes one call from the monthly allowance before anything is sent to Google. A call is
@@ -89,4 +90,21 @@ func (r *MeteredRoutes) Compute(ctx context.Context, req transfer.RouteRequest) 
 		return nil, err
 	}
 	return r.inner.Compute(ctx, req)
+}
+
+// MeteredMaps counts every map picture against a monthly limit.
+type MeteredMaps struct {
+	inner transfer.MapRenderer
+	meter meter
+}
+
+func NewMeteredMaps(inner transfer.MapRenderer, counter quota.Counter, limit int, logger *slog.Logger) *MeteredMaps {
+	return &MeteredMaps{inner: inner, meter: meter{counter: counter, bucket: BucketMaps, limit: limit, logger: logger}}
+}
+
+func (m *MeteredMaps) Render(ctx context.Context, spec transfer.MapSpec) (transfer.MapImage, error) {
+	if err := m.meter.take(ctx); err != nil {
+		return transfer.MapImage{}, err
+	}
+	return m.inner.Render(ctx, spec)
 }

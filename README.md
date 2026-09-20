@@ -166,7 +166,7 @@ Cada domínio segue o mesmo formato (entidades e use cases no pacote raiz, `http
 | Roteiro | `itinerary-days`, `itinerary-items`, `itinerary-items/from-place`, `GET itinerary` (timeline unificada) |
 | Lugares | `places`, `restaurants`, `GET /places/search` (só com chave do Google) |
 | Reservas | `flights`, `hotels` (duração do voo e fusos derivados no servidor) |
-| Transfers | `transfers`, `transfers/plan` (só com chave do Google) |
+| Transfers | `transfers`, `transfers/plan` e `transfers/map` (imagem PNG do mapa da rota; só com chave do Google) |
 | Documentos | `documents`, `documents/{id}/complete`, `documents/{id}/download` |
 | Sync | `GET` e `POST /trips/{id}/sync` |
 
@@ -182,7 +182,7 @@ Os arquivos ficam no **MongoDB (GridFS)**, sem nenhum serviço externo de armaze
 
 ### Google (opcional)
 
-Sem `GOOGLE_MAPS_API_KEY` a API sobe normalmente e as rotas do Google simplesmente não existem; o cadastro manual continua funcionando. Com a chave, ative no Google Cloud a **Places API (New)** e a **Routes API**, crie uma chave de servidor e restrinja-a a essas duas APIs. A chave nunca vai para o frontend.
+Sem `GOOGLE_MAPS_API_KEY` a API sobe normalmente e as rotas do Google simplesmente não existem; o cadastro manual continua funcionando. Com a chave, ative no Google Cloud a **Places API (New)**, a **Routes API** e a **Maps Static API**, crie uma chave de servidor e restrinja-a a essas três APIs. O mapa da rota (`transfers/map`) é montado na hora com a Routes API (o traçado) e a Maps Static API (a imagem, 10.000 chamadas grátis por mês) e entregue direto ao cliente, sem guardar nada: os termos do Google não permitem armazenar o conteúdo dele. Se o traçado falhar, o mapa sai só com os pontos A e B. A chave nunca vai para o frontend.
 
 **Teto de gasto.** O Google não tem um modo "nunca me cobre": os orçamentos só enviam alertas. Por isso o backend conta as chamadas no MongoDB (coleção `provider_usage`, um documento por API e mês) e, ao atingir `GOOGLE_MONTHLY_LIMIT`, passa a recusar novas chamadas com `503 provider_quota_exhausted`, sem contatar o Google. O padrão de 4000 fica abaixo da menor franquia gratuita (5.000 chamadas), deixando margem para a diferença entre o mês do Google e o mês UTC usado na contagem. A chamada é contada antes de ser enviada e nunca devolvida, porque uma requisição que falha depois de sair ainda pode ser cobrada. Se o contador estiver indisponível, a chamada é recusada em vez de liberada. Um aviso vai para o log ao chegar em 80% do limite e a cada recusa. O contador é atômico: várias instâncias da API, ou requisições simultâneas, nunca passam do limite.
 

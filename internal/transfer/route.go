@@ -41,6 +41,9 @@ type Route struct {
 	Duration       time.Duration
 	DistanceMeters int
 	Legs           []RouteLeg
+	// Polyline is the provider's encoded line of the whole route, only used to draw a map on demand.
+	// It is never stored: the provider's terms do not allow keeping its content.
+	Polyline string
 }
 
 // RouteProvider is the port to a routing service. The transfer use cases never see Google types.

@@ -11,7 +11,7 @@ import (
 	"rinotravel-api/internal/transfer"
 )
 
-const routeFields = "routes.duration,routes.distanceMeters," +
+const routeFields = "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline," +
 	"routes.legs.steps.travelMode,routes.legs.steps.staticDuration,routes.legs.steps.distanceMeters," +
 	"routes.legs.steps.startLocation,routes.legs.steps.endLocation," +
 	"routes.legs.steps.navigationInstruction.instructions,routes.legs.steps.transitDetails"
@@ -73,7 +73,10 @@ type routesResponse struct {
 	Routes []struct {
 		Duration       string `json:"duration"`
 		DistanceMeters int    `json:"distanceMeters"`
-		Legs           []struct {
+		Polyline       struct {
+			Encoded string `json:"encodedPolyline"`
+		} `json:"polyline"`
+		Legs []struct {
 			Steps []stepDTO `json:"steps"`
 		} `json:"legs"`
 	} `json:"routes"`
@@ -96,7 +99,7 @@ func (r *Routes) Compute(ctx context.Context, req transfer.RouteRequest) ([]tran
 
 	routes := make([]transfer.Route, 0, len(out.Routes))
 	for _, raw := range out.Routes {
-		route := transfer.Route{Duration: parseDuration(raw.Duration), DistanceMeters: raw.DistanceMeters}
+		route := transfer.Route{Duration: parseDuration(raw.Duration), DistanceMeters: raw.DistanceMeters, Polyline: raw.Polyline.Encoded}
 		for _, leg := range raw.Legs {
 			route.Legs = append(route.Legs, mergeSteps(leg.Steps)...)
 		}

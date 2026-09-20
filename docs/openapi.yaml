@@ -1427,6 +1427,43 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
 
+  /api/v1/trips/{tripId}/transfers/map:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    post:
+      tags: [Transfers]
+      operationId: renderTransferMap
+      summary: Desenha o mapa da rota A→B, ainda sem o deslocamento salvo. Só existe quando o servidor tem GOOGLE_MAPS_API_KEY
+      description: |
+        Devolve uma imagem PNG com os dois pontos e, quando o Google acha a rota, o traçado. A imagem é feita na hora e
+        nada dela é guardado no servidor. Qualquer membro da viagem (inclusive LEITOR) pode pedir.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MapRequest'
+      responses:
+        '200':
+          description: A imagem do mapa (cache privado de 5 minutos).
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
   /api/v1/trips/{tripId}/documents:
     parameters:
       - $ref: '#/components/parameters/TripId'
@@ -3052,6 +3089,20 @@ components:
           $ref: '#/components/schemas/TransferMode'
         departureAt:
           $ref: '#/components/schemas/ZonedTime'
+        language:
+          type: string
+
+    MapRequest:
+      type: object
+      additionalProperties: false
+      required: [origin, destination]
+      properties:
+        origin:
+          $ref: '#/components/schemas/Location'
+        destination:
+          $ref: '#/components/schemas/Location'
+        mode:
+          $ref: '#/components/schemas/TransferMode'
         language:
           type: string
 

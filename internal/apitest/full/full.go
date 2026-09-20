@@ -37,6 +37,7 @@ type Stack struct {
 	Storage *documenttest.Storage
 	Places  *FakePlaces
 	Routes  *FakeRoutes
+	Maps    *FakeMaps
 	Log     *synctest.Log
 	// Quota is the monthly Google allowance the fakes are metered against, like in production.
 	Quota *quotatest.Counter
@@ -71,9 +72,21 @@ func (f *FakeRoutes) Compute(context.Context, transfer.RouteRequest) ([]transfer
 	return f.Routes, f.Err
 }
 
+// FakeMaps stands in for the static map service and remembers what it was asked to draw.
+type FakeMaps struct {
+	Image transfer.MapImage
+	Err   error
+	Specs []transfer.MapSpec
+}
+
+func (f *FakeMaps) Render(_ context.Context, spec transfer.MapSpec) (transfer.MapImage, error) {
+	f.Specs = append(f.Specs, spec)
+	return f.Image, f.Err
+}
+
 func New(t *testing.T) *Stack {
 	t.Helper()
-	s := &Stack{Storage: documenttest.NewStorage(), Places: &FakePlaces{}, Routes: &FakeRoutes{}, Log: synctest.NewLog(), Quota: &quotatest.Counter{}}
+	s := &Stack{Storage: documenttest.NewStorage(), Places: &FakePlaces{}, Routes: &FakeRoutes{}, Maps: &FakeMaps{}, Log: synctest.NewLog(), Quota: &quotatest.Counter{}}
 
 	s.Env = apitest.New(t, func(e apitest.Env) []server.Module {
 		authz := e.Authz
@@ -92,9 +105,12 @@ func New(t *testing.T) *Stack {
 			Search: place.NewSearchPlaces(google.NewMeteredPlaces(s.Places, s.Quota, GoogleLimit, e.Logger), e.Logger), SearchLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
 		})
 		bookingH := bookingapi.New(bookingapi.Deps{Logger: e.Logger, Guard: e.Guard, Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz)})
+		routes := google.NewMeteredRoutes(s.Routes, s.Quota, GoogleLimit, e.Logger)
 		transferH := transferapi.New(transferapi.Deps{
 			Logger: e.Logger, Guard: e.Guard, Transfers: transfer.NewTransfers(transfers, authz),
-			Planner: transfer.NewPlanner(google.NewMeteredRoutes(s.Routes, s.Quota, GoogleLimit, e.Logger), authz, e.Logger),
+			Planner:    transfer.NewPlanner(routes, authz, e.Logger),
+			Maps:       transfer.NewMaps(routes, google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), authz, e.Logger),
+			MapLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
 		})
 		documentH := documentapi.New(documentapi.Deps{Logger: e.Logger, Guard: e.Guard, Documents: document.NewDocuments(documents, authz, s.Storage, "test", e.Logger)})
 		itineraryH := itineraryapi.New(itineraryapi.Deps{

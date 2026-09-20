@@ -518,6 +518,67 @@ func TestGoogleCallsStopAtTheMonthlyLimit(t *testing.T) {
 	w.problem(t, "POST", "/transfers/plan", w.ana, plan, 503, "provider_quota_exhausted")
 }
 
+func TestMapPictureOfARoute(t *testing.T) {
+	w := newWorld(t)
+	png := []byte("\x89PNG fake image")
+	w.Maps.Image = transfer.MapImage{Data: png, ContentType: "image/png"}
+	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: time.Minute, Polyline: "abc123"}}
+	body := `{"origin":{"name":"JFK","latitude":40.64,"longitude":-73.78},"destination":{"address":"Times Square, New York"},"mode":"TRAIN","language":"pt-BR"}`
+
+	rec := w.Do("POST", w.base+"/transfers/map", w.ana.Token, body)
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/png" || rec.Body.String() != string(png) {
+		t.Fatalf("map = %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
+	}
+	if cache := rec.Header().Get("Cache-Control"); !strings.HasPrefix(cache, "private") {
+		t.Errorf("Cache-Control = %q, want a private, short-lived picture", cache)
+	}
+	spec := w.Maps.Specs[len(w.Maps.Specs)-1]
+	if spec.Polyline != "abc123" || spec.Origin.Coordinates == nil || spec.Destination.Address != "Times Square, New York" || spec.Language != "pt-BR" {
+		t.Errorf("spec = %+v, want the route line and both ends", spec)
+	}
+
+	// Anyone who can read the trip can see its map; strangers learn nothing.
+	if rec := w.Do("POST", w.base+"/transfers/map", w.bia.Token, body); rec.Code != 200 {
+		t.Errorf("a viewer must see the map: %d %s", rec.Code, rec.Body)
+	}
+	w.problem(t, "POST", "/transfers/map", w.caio, body, 404, "trip_not_found")
+	apitest.RequireProblem(t, w.Do("POST", w.base+"/transfers/map", "", body), 401, "unauthenticated")
+	w.problem(t, "POST", "/transfers/map", w.ana, `{"origin":{},"destination":{}}`, 422, "validation_failed")
+	w.problem(t, "POST", "/transfers/map", w.ana, `{"origin":{"name":"A"},"destination":{"name":"B"},"mode":"JETPACK"}`, 422, "validation_failed")
+}
+
+func TestMapPictureDegradesInsteadOfFailing(t *testing.T) {
+	w := newWorld(t)
+	w.Maps.Image = transfer.MapImage{Data: []byte("img"), ContentType: "image/png"}
+	body := `{"origin":{"name":"A"},"destination":{"name":"B"}}`
+
+	// No route line (the lookup failed): the two markers are still drawn.
+	w.Routes.Err = fmt.Errorf("routes down")
+	if rec := w.Do("POST", w.base+"/transfers/map", w.ana.Token, body); rec.Code != 200 {
+		t.Fatalf("a failed route lookup must not fail the map: %d %s", rec.Code, rec.Body)
+	}
+	if got := w.Maps.Specs[len(w.Maps.Specs)-1].Polyline; got != "" {
+		t.Errorf("polyline = %q, want none", got)
+	}
+	w.Routes.Err = nil
+
+	// The renderer itself failing is reported without leaking why.
+	w.Maps.Err = fmt.Errorf("upstream exploded: secret-detail")
+	problem := w.problem(t, "POST", "/transfers/map", w.ana, body, 503, "provider_unavailable")
+	if strings.Contains(fmt.Sprint(problem), "secret-detail") {
+		t.Error("provider errors must not leak")
+	}
+	w.Maps.Err = nil
+
+	// A spent monthly allowance stops the calls: Google is not contacted again.
+	w.Quota.Set(google.BucketMaps, full.GoogleLimit)
+	drawn := len(w.Maps.Specs)
+	w.problem(t, "POST", "/transfers/map", w.ana, body, 503, "provider_quota_exhausted")
+	if len(w.Maps.Specs) != drawn {
+		t.Error("the renderer was called after the monthly limit was reached")
+	}
+}
+
 func marshal(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)

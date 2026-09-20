@@ -19,6 +19,9 @@ type Deps struct {
 	Transfers *transfer.Transfers
 	// Planner is optional: without a route provider the plan endpoint is not mounted.
 	Planner *transfer.Planner
+	// Maps is optional like Planner: without a map service the map endpoint is not mounted.
+	Maps       *transfer.Maps
+	MapLimiter *httpx.RateLimiter
 }
 
 type Handler struct {
@@ -38,6 +41,10 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	h.Routes.Mount(mux)
 	if h.deps.Planner != nil {
 		mux.Handle("POST /api/v1/trips/{tripId}/transfers/plan", httpx.Handle(h.deps.Logger, h.deps.Guard.Require(h.plan)))
+	}
+	if h.deps.Maps != nil {
+		limited := h.deps.MapLimiter.Wrap(h.mapImage)
+		mux.Handle("POST /api/v1/trips/{tripId}/transfers/map", httpx.Handle(h.deps.Logger, h.deps.Guard.Require(limited)))
 	}
 }
 
@@ -149,4 +156,27 @@ func presentTransfer(t transfer.Transfer) TransferResponse {
 		resp.DurationMinutes = &minutes
 	}
 	return resp
+}
+
+// mapImage answers with the picture itself. It is private and short-lived: the picture is Google's
+// content, so browsers may keep it briefly for speed but it is never stored on the server.
+func (h *Handler) mapImage(w http.ResponseWriter, r *http.Request) error {
+	tripID, err := httpres.PathID(r, "tripId")
+	if err != nil {
+		return err
+	}
+	var in transfer.MapRequest
+	if err := httpx.DecodeJSON(w, r, &in); err != nil {
+		return err
+	}
+	image, err := h.deps.Maps.Render(r.Context(), authapi.UserID(r.Context()), trip.ID(tripID), in)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", image.ContentType)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(image.Data)
+	return nil
 }

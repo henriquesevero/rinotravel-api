@@ -123,10 +123,12 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	if d.Config.GoogleMapsAPIKey != "" {
 		var placeProvider place.PlaceProvider = google.NewPlaces(d.Config.GoogleMapsAPIKey)
 		var routeProvider transfer.RouteProvider = google.NewRoutes(d.Config.GoogleMapsAPIKey)
+		var mapRenderer transfer.MapRenderer = google.NewStaticMaps(d.Config.GoogleMapsAPIKey)
 		if limit := d.Config.GoogleMonthlyLimit; limit > 0 {
 			counter := quotamongo.New(d.DB)
 			placeProvider = google.NewMeteredPlaces(placeProvider, counter, limit, d.Logger)
 			routeProvider = google.NewMeteredRoutes(routeProvider, counter, limit, d.Logger)
+			mapRenderer = google.NewMeteredMaps(mapRenderer, counter, limit, d.Logger)
 			d.Logger.Info("google calls are capped", slog.Int("monthly_limit_per_api", limit))
 		} else {
 			d.Logger.Warn("google calls are NOT capped: GOOGLE_MONTHLY_LIMIT is 0, usage past the free allowance is billed")
@@ -134,6 +136,8 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		placesDeps.Search = place.NewSearchPlaces(placeProvider, d.Logger)
 		placesDeps.SearchLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
 		transferDeps.Planner = transfer.NewPlanner(routeProvider, authz, d.Logger)
+		transferDeps.Maps = transfer.NewMaps(routeProvider, mapRenderer, authz, d.Logger)
+		transferDeps.MapLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
 	} else {
 		d.Logger.Info("place search and route planning disabled: GOOGLE_MAPS_API_KEY is not set")
 	}
