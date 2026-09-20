@@ -26,6 +26,16 @@ type Config struct {
 	RegistrationCode   string
 	MongoDBURI         string
 	MongoDBDatabase    string
+
+	// S3 settings are optional: without a bucket the documents feature is not mounted.
+	S3Bucket          string
+	S3Region          string
+	S3Endpoint        string
+	S3AccessKeyID     string
+	S3SecretAccessKey string
+
+	// GoogleMapsAPIKey is optional: without it the place search and route planning endpoints are not mounted.
+	GoogleMapsAPIKey string
 }
 
 const (
@@ -81,6 +91,16 @@ func Load(getenv func(string) string) (Config, error) {
 	if len(cfg.RegistrationCode) < minRegistrationCodeLength {
 		errs = append(errs, fmt.Errorf("REGISTRATION_CODE is required and must have at least %d characters", minRegistrationCodeLength))
 	}
+
+	cfg.S3Bucket = getenv("S3_BUCKET")
+	cfg.S3Region = valueOrDefault(getenv("S3_REGION"), "us-east-1")
+	cfg.S3Endpoint = getenv("S3_ENDPOINT")
+	cfg.S3AccessKeyID = getenv("S3_ACCESS_KEY_ID")
+	cfg.S3SecretAccessKey = getenv("S3_SECRET_ACCESS_KEY")
+	if (cfg.S3AccessKeyID == "") != (cfg.S3SecretAccessKey == "") {
+		errs = append(errs, errors.New("S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be set together"))
+	}
+	cfg.GoogleMapsAPIKey = getenv("GOOGLE_MAPS_API_KEY")
 
 	cfg.MongoDBURI = getenv("MONGODB_URI")
 	if cfg.MongoDBURI == "" {

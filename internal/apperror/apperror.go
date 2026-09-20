@@ -10,6 +10,7 @@ const (
 	KindConflict
 	KindValidation
 	KindTooManyRequests
+	KindUnavailable
 )
 
 type FieldError struct {
@@ -54,6 +55,10 @@ func TooManyRequests(code, message string) *Error {
 
 func Unprocessable(code, message string) *Error {
 	return &Error{Kind: KindValidation, Code: code, Message: message}
+}
+
+func Unavailable(code, message string) *Error {
+	return &Error{Kind: KindUnavailable, Code: code, Message: message}
 }
 
 func Validation(fields ...FieldError) *Error {

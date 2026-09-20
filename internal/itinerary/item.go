@@ -267,3 +267,61 @@ func (s *Items) checkSchedule(v *kernel.Validator, item Item, day Day) {
 		v.Add("estimatedDurationMinutes", "must be omitted when an end time is set")
 	}
 }
+
+// PlaceSnapshot is the part of a wishlist place an itinerary item is built from. The place
+// domain implements PlaceReader, so the itinerary never imports it.
+type PlaceSnapshot struct {
+	ID              string
+	Name            string
+	Description     string
+	Category        string
+	Location        kernel.Location
+	DurationMinutes *int
+	Cost            *kernel.Money
+	Notes           string
+}
+
+type PlaceReader interface {
+	Snapshot(ctx context.Context, tripID, placeID string) (PlaceSnapshot, error)
+}
+
+type ScheduleFromPlace struct {
+	ID       string                                 `json:"id"`
+	PlaceID  string                                 `json:"placeId"`
+	DayID    string                                 `json:"dayId"`
+	Start    kernel.Optional[kernel.ZonedTimeInput] `json:"start"`
+	End      kernel.Optional[kernel.ZonedTimeInput] `json:"end"`
+	Position *int                                   `json:"position"`
+}
+
+// CreateFromPlace copies the place into a new item on the given day. The item keeps a link to the
+// place but is independent afterwards: later edits to either do not propagate.
+func (s *Items) CreateFromPlace(ctx context.Context, places PlaceReader, actor user.ID, tripID trip.ID, in ScheduleFromPlace) (resource.Result[Item], error) {
+	snap, err := places.Snapshot(ctx, string(tripID), in.PlaceID)
+	if err != nil {
+		return resource.Result[Item]{}, err
+	}
+	fields := ItemFields{
+		DayID: &in.DayID, Title: &snap.Name, Description: &snap.Description, Category: &snap.Category,
+		Notes: &snap.Notes, PlaceID: &snap.ID, Position: in.Position, Start: in.Start, End: in.End,
+	}
+	if !snap.Location.IsZero() {
+		fields.Location = kernel.Optional[kernel.LocationInput]{Set: true, Value: locationInput(snap.Location)}
+	}
+	if snap.DurationMinutes != nil && !in.End.Set {
+		fields.DurationMinutes = kernel.Optional[int]{Set: true, Value: *snap.DurationMinutes}
+	}
+	if snap.Cost != nil {
+		fields.Cost = kernel.Optional[kernel.MoneyInput]{Set: true, Value: kernel.MoneyInput{Amount: snap.Cost.Amount, Currency: string(snap.Cost.Currency)}}
+	}
+	return s.Create(ctx, actor, tripID, ItemCreate{ID: in.ID, ItemFields: fields})
+}
+
+func locationInput(l kernel.Location) kernel.LocationInput {
+	in := kernel.LocationInput{Name: l.Name, Address: l.Address}
+	if l.Coordinates != nil {
+		lat, lng := l.Coordinates.Lat, l.Coordinates.Lng
+		in.Latitude, in.Longitude = &lat, &lng
+	}
+	return in
+}

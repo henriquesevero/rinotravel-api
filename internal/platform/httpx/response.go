@@ -91,6 +91,8 @@ func statusFor(kind apperror.Kind) int {
 		return http.StatusUnprocessableEntity
 	case apperror.KindTooManyRequests:
 		return http.StatusTooManyRequests
+	case apperror.KindUnavailable:
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}

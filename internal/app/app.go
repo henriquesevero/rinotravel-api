@@ -13,12 +13,29 @@ import (
 	"rinotravel-api/internal/auth/argon2id"
 	authapi "rinotravel-api/internal/auth/httpapi"
 	authmongo "rinotravel-api/internal/auth/mongorepo"
+	"rinotravel-api/internal/booking"
+	bookingapi "rinotravel-api/internal/booking/httpapi"
+	bookingmongo "rinotravel-api/internal/booking/mongorepo"
+	"rinotravel-api/internal/document"
+	documentapi "rinotravel-api/internal/document/httpapi"
+	documentmongo "rinotravel-api/internal/document/mongorepo"
+	"rinotravel-api/internal/document/s3storage"
+	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/itinerary"
 	itineraryapi "rinotravel-api/internal/itinerary/httpapi"
 	itinerarymongo "rinotravel-api/internal/itinerary/mongorepo"
+	"rinotravel-api/internal/place"
+	placeapi "rinotravel-api/internal/place/httpapi"
+	placemongo "rinotravel-api/internal/place/mongorepo"
 	"rinotravel-api/internal/platform/config"
 	"rinotravel-api/internal/platform/httpx"
 	"rinotravel-api/internal/server"
+	"rinotravel-api/internal/syncengine"
+	syncapi "rinotravel-api/internal/syncengine/httpapi"
+	"rinotravel-api/internal/syncengine/mongolog"
+	"rinotravel-api/internal/transfer"
+	transferapi "rinotravel-api/internal/transfer/httpapi"
+	transfermongo "rinotravel-api/internal/transfer/mongorepo"
 	"rinotravel-api/internal/trip"
 	tripapi "rinotravel-api/internal/trip/httpapi"
 	tripmongo "rinotravel-api/internal/trip/mongorepo"
@@ -29,12 +46,25 @@ import (
 const (
 	startupTimeout = 30 * time.Second
 	authRateWindow = time.Minute
+	// providerRateLimit caps paid external lookups per client and minute.
+	providerRateLimit = 30
 )
 
 type Deps struct {
 	Logger *slog.Logger
 	Config config.Config
 	DB     *mongo.Database
+}
+
+// registry collects what each feature contributes while the application is assembled.
+type registry struct {
+	modules []server.Module
+	sources []syncengine.Source
+}
+
+func (r *registry) add(module server.Module, sources ...syncengine.Source) {
+	r.modules = append(r.modules, module)
+	r.sources = append(r.sources, sources...)
 }
 
 func Build(ctx context.Context, d Deps) ([]server.Module, error) {
@@ -46,23 +76,99 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	guard := authapi.NewGuard(auth.NewAuthenticate(sessions))
 	trips := tripmongo.New(d.DB)
 	authz := trip.NewAuthorizer(trips)
+	mutations := mongolog.New(d.DB)
 
-	for _, ensure := range []func(context.Context) error{users.EnsureIndexes, sessions.EnsureIndexes, trips.EnsureIndexes} {
+	days := itinerarymongo.NewDayStore(d.DB)
+	items := itinerarymongo.NewItemStore(d.DB)
+	places := placemongo.NewPlaceStore(d.DB)
+	restaurants := placemongo.NewRestaurantStore(d.DB)
+	flights := bookingmongo.NewFlightStore(d.DB)
+	hotels := bookingmongo.NewHotelStore(d.DB)
+	transfers := transfermongo.NewStore(d.DB)
+	documents := documentmongo.NewStore(d.DB)
+
+	for _, ensure := range []func(context.Context) error{
+		users.EnsureIndexes, sessions.EnsureIndexes, trips.EnsureIndexes, mutations.EnsureIndexes,
+		func(ctx context.Context) error { return days.EnsureIndexes(ctx, itinerarymongo.DayIndexes()...) },
+		func(ctx context.Context) error { return items.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return places.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return restaurants.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return flights.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return hotels.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return transfers.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return documents.EnsureIndexes(ctx) },
+	} {
 		if err := ensure(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	authModule, err := authModule(d, users, sessions, guard)
+	var reg registry
+
+	authMod, err := authModule(d, users, sessions, guard)
 	if err != nil {
 		return nil, err
 	}
-	itineraryModule, err := itineraryModule(ctx, d, guard, authz)
-	if err != nil {
-		return nil, err
+	reg.add(authMod)
+
+	tripsHandler := tripHandler(d, trips, users, guard)
+	reg.add(tripsHandler, tripsHandler.SyncSource(trips))
+
+	placesUC := place.NewPlaces(places, authz)
+	restaurantsUC := place.NewRestaurants(restaurants, authz)
+	placesDeps := placeapi.Deps{Logger: d.Logger, Guard: guard, Places: placesUC, Restaurants: restaurantsUC}
+	transferUC := transfer.NewTransfers(transfers, authz)
+	transferDeps := transferapi.Deps{Logger: d.Logger, Guard: guard, Transfers: transferUC}
+	if d.Config.GoogleMapsAPIKey != "" {
+		placesDeps.Search = place.NewSearchPlaces(google.NewPlaces(d.Config.GoogleMapsAPIKey), d.Logger)
+		placesDeps.SearchLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
+		transferDeps.Planner = transfer.NewPlanner(google.NewRoutes(d.Config.GoogleMapsAPIKey), authz, d.Logger)
+	} else {
+		d.Logger.Info("place search and route planning disabled: GOOGLE_MAPS_API_KEY is not set")
+	}
+	placesHandler := placeapi.New(placesDeps)
+	reg.add(placesHandler, placesHandler.SyncSources()...)
+
+	bookingHandler := bookingapi.New(bookingapi.Deps{
+		Logger: d.Logger, Guard: guard,
+		Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz),
+	})
+	reg.add(bookingHandler, bookingHandler.SyncSources()...)
+
+	transferHandler := transferapi.New(transferDeps)
+	reg.add(transferHandler, transferHandler.SyncSources()...)
+
+	if d.Config.S3Bucket != "" {
+		storage, err := s3storage.New(ctx, s3storage.Config{
+			Bucket: d.Config.S3Bucket, Region: d.Config.S3Region, Endpoint: d.Config.S3Endpoint,
+			AccessKeyID: d.Config.S3AccessKeyID, SecretAccessKey: d.Config.S3SecretAccessKey,
+		})
+		if err != nil {
+			return nil, err
+		}
+		documentHandler := documentapi.New(documentapi.Deps{
+			Logger: d.Logger, Guard: guard,
+			Documents: document.NewDocuments(documents, authz, storage, string(d.Config.Env), d.Logger),
+		})
+		reg.add(documentHandler, documentHandler.SyncSource())
+	} else {
+		d.Logger.Info("documents disabled: S3_BUCKET is not set")
 	}
 
-	return []server.Module{authModule, tripModule(d, trips, users, guard), itineraryModule}, nil
+	itineraryHandler := itineraryapi.New(itineraryapi.Deps{
+		Logger: d.Logger,
+		Guard:  guard,
+		Days:   itinerary.NewDays(days, items, authz),
+		Items:  itinerary.NewItems(items, days, authz),
+		Places: placesUC,
+		Timeline: itinerary.NewTimeline(days, items, authz,
+			place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels), transfer.NewTimelineSource(transfers)),
+	})
+	reg.add(itineraryHandler, itineraryHandler.SyncSources()...)
+
+	engine := syncengine.NewEngine(authz, mutations, mongolog.NewTransactor(d.DB), reg.sources...)
+	reg.add(syncapi.New(d.Logger, guard, engine))
+	return reg.modules, nil
 }
 
 func authModule(d Deps, users *usermongo.Repository, sessions *authmongo.SessionRepository, guard authapi.Guard) (server.Module, error) {
@@ -82,7 +188,7 @@ func authModule(d Deps, users *usermongo.Repository, sessions *authmongo.Session
 	}), nil
 }
 
-func tripModule(d Deps, trips *tripmongo.Repository, users *usermongo.Repository, guard authapi.Guard) server.Module {
+func tripHandler(d Deps, trips *tripmongo.Repository, users *usermongo.Repository, guard authapi.Guard) *tripapi.Handler {
 	return tripapi.New(tripapi.Deps{
 		Logger:            d.Logger,
 		Guard:             guard,
@@ -97,22 +203,4 @@ func tripModule(d Deps, trips *tripmongo.Repository, users *usermongo.Repository
 		RemoveMember:      trip.NewRemoveMember(trips),
 		TransferOwnership: trip.NewTransferOwnership(trips),
 	})
-}
-
-func itineraryModule(ctx context.Context, d Deps, guard authapi.Guard, authz *trip.Authorizer) (server.Module, error) {
-	days := itinerarymongo.NewDayStore(d.DB)
-	items := itinerarymongo.NewItemStore(d.DB)
-	if err := days.EnsureIndexes(ctx, itinerarymongo.DayIndexes()...); err != nil {
-		return nil, err
-	}
-	if err := items.EnsureIndexes(ctx); err != nil {
-		return nil, err
-	}
-	return itineraryapi.New(itineraryapi.Deps{
-		Logger:   d.Logger,
-		Guard:    guard,
-		Days:     itinerary.NewDays(days, items, authz),
-		Items:    itinerary.NewItems(items, days, authz),
-		Timeline: itinerary.NewTimeline(days, items, authz),
-	}), nil
 }

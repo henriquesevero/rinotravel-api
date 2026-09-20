@@ -93,6 +93,19 @@ func New(t *testing.T, build func(Env) []server.Module) *Env {
 	return env
 }
 
+// TripHandler builds the trip HTTP handler over the environment's repositories, for tests that need
+// its sync source.
+func TripHandler(e Env) *tripapi.Handler {
+	return tripapi.New(tripapi.Deps{
+		Logger: e.Logger, Guard: e.Guard,
+		CreateTrip: trip.NewCreateTrip(e.Trips), GetTrip: trip.NewGetTrip(e.Trips), ListTrips: trip.NewListTrips(e.Trips),
+		UpdateTrip: trip.NewUpdateTrip(e.Trips), DeleteTrip: trip.NewDeleteTrip(e.Trips),
+		AddMember: trip.NewAddMember(e.Trips, e.Users), ListMembers: trip.NewListMembers(e.Trips, e.Users),
+		ChangeMemberRole: trip.NewChangeMemberRole(e.Trips, e.Users), RemoveMember: trip.NewRemoveMember(e.Trips),
+		TransferOwnership: trip.NewTransferOwnership(e.Trips),
+	})
+}
+
 func (e *Env) Do(method, path, token, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {

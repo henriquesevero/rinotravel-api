@@ -18,6 +18,11 @@ type Repository interface {
 	Update(ctx context.Context, t Trip) error
 }
 
+// SeqReader exposes the change sequence number a trip record was last written with.
+type SeqReader interface {
+	FindWithSeq(ctx context.Context, id ID) (Trip, int64, error)
+}
+
 type Users interface {
 	FindByEmail(ctx context.Context, email string) (user.User, error)
 	FindByIDs(ctx context.Context, ids []user.ID) ([]user.User, error)

@@ -41,6 +41,11 @@ func (r *Repository) FindByID(_ context.Context, id trip.ID) (trip.Trip, error) 
 	return clone(t), nil
 }
 
+func (r *Repository) FindWithSeq(ctx context.Context, id trip.ID) (trip.Trip, int64, error) {
+	t, err := r.FindByID(ctx, id)
+	return t, t.Version, err
+}
+
 func (r *Repository) ListByMember(_ context.Context, userID user.ID) ([]trip.Trip, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

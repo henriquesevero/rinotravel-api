@@ -65,7 +65,7 @@ func (e *Engine) Pull(ctx context.Context, actor user.ID, tripID trip.ID, token 
 
 	var all []Change
 	for _, source := range e.order {
-		changes, err := source.Changes(ctx, string(tripID), after, limit+1, access.Role)
+		changes, err := source.Changes(ctx, actor, string(tripID), after, limit+1, access.Role)
 		if err != nil {
 			return PullResult{}, fmt.Errorf("pull %s: %w", source.Name(), err)
 		}
@@ -191,7 +191,7 @@ func (e *Engine) failure(ctx context.Context, tripID trip.ID, actor user.ID, sou
 	if appErr.Code == "version_conflict" || (appErr.Kind == apperror.KindNotFound && m.Operation == OpUpdate && appErr.Code != "trip_not_found") {
 		result := Result{MutationID: m.MutationID, Status: StatusConflict, Code: appErr.Code, Message: appErr.Message}
 		if access, err := e.authz.Authorize(ctx, tripID, actor, trip.ActionRead); err == nil {
-			if current, ok, err := source.Current(ctx, string(tripID), m.EntityID, access.Role); err == nil && ok {
+			if current, ok, err := source.Current(ctx, actor, string(tripID), m.EntityID, access.Role); err == nil && ok {
 				result.Version = current.Version
 				if current.Op == OpDelete {
 					result.Code = "entity_deleted"

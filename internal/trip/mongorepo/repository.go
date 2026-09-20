@@ -125,6 +125,18 @@ func (r *Repository) FindByID(ctx context.Context, id trip.ID) (trip.Trip, error
 	return doc.toTrip(), nil
 }
 
+func (r *Repository) FindWithSeq(ctx context.Context, id trip.ID) (trip.Trip, int64, error) {
+	var doc document
+	err := r.trips.FindOne(ctx, bson.D{{Key: "_id", Value: string(id)}, {Key: "deletedAt", Value: nil}}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return trip.Trip{}, 0, trip.ErrNotFound
+	}
+	if err != nil {
+		return trip.Trip{}, 0, fmt.Errorf("find trip: %w", err)
+	}
+	return doc.toTrip(), doc.Seq, nil
+}
+
 func (r *Repository) ListByMember(ctx context.Context, userID user.ID) ([]trip.Trip, error) {
 	cursor, err := r.trips.Find(ctx,
 		bson.D{{Key: "members.userId", Value: string(userID)}, {Key: "deletedAt", Value: nil}},

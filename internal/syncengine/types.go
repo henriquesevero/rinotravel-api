@@ -87,8 +87,8 @@ type Outcome struct {
 // sync can never bypass validation or authorization.
 type Source interface {
 	Name() string
-	Changes(ctx context.Context, tripID string, afterSeq int64, limit int, role trip.Role) ([]Change, error)
-	Current(ctx context.Context, tripID, id string, role trip.Role) (Change, bool, error)
+	Changes(ctx context.Context, actor user.ID, tripID string, afterSeq int64, limit int, role trip.Role) ([]Change, error)
+	Current(ctx context.Context, actor user.ID, tripID, id string, role trip.Role) (Change, bool, error)
 	Apply(ctx context.Context, actor user.ID, tripID trip.ID, m Mutation) (Outcome, error)
 }
 

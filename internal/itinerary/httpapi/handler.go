@@ -8,6 +8,7 @@ import (
 	"rinotravel-api/internal/itinerary"
 	"rinotravel-api/internal/platform/httpx"
 	"rinotravel-api/internal/resource/httpres"
+	"rinotravel-api/internal/syncengine"
 	"rinotravel-api/internal/trip"
 )
 
@@ -17,6 +18,7 @@ type Deps struct {
 	Days     *itinerary.Days
 	Items    *itinerary.Items
 	Timeline *itinerary.Timeline
+	Places   itinerary.PlaceReader
 }
 
 type Handler struct {
@@ -48,10 +50,15 @@ func New(d Deps) *Handler {
 	}
 }
 
+func (h *Handler) SyncSources() []syncengine.Source {
+	return []syncengine.Source{h.Days.SyncSource("itinerary_day"), h.Items.SyncSource("itinerary_item")}
+}
+
 func (h *Handler) Mount(mux *http.ServeMux) {
 	h.Days.Mount(mux)
 	h.Items.Mount(mux)
 	mux.Handle("GET /api/v1/trips/{tripId}/itinerary", httpx.Handle(h.deps.Logger, h.deps.Guard.Require(h.timeline)))
+	mux.Handle("POST /api/v1/trips/{tripId}/itinerary-items/from-place", httpx.Handle(h.deps.Logger, h.deps.Guard.Require(h.fromPlace)))
 }
 
 type DayResponse struct {
@@ -131,5 +138,23 @@ func (h *Handler) timeline(w http.ResponseWriter, r *http.Request) error {
 	httpx.WriteJSON(w, http.StatusOK, struct {
 		Days []timelineDay `json:"days"`
 	}{Days: days})
+	return nil
+}
+
+// fromPlace turns a wishlist place into an itinerary item on the given day.
+func (h *Handler) fromPlace(w http.ResponseWriter, r *http.Request) error {
+	tripID, err := httpres.PathID(r, "tripId")
+	if err != nil {
+		return err
+	}
+	var in itinerary.ScheduleFromPlace
+	if err := httpx.DecodeJSON(w, r, &in); err != nil {
+		return err
+	}
+	res, err := h.deps.Items.CreateFromPlace(r.Context(), h.deps.Places, authapi.UserID(r.Context()), trip.ID(tripID), in)
+	if err != nil {
+		return err
+	}
+	httpx.WriteJSON(w, http.StatusCreated, presentItem(res.Entity))
 	return nil
 }
