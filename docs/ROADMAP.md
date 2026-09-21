@@ -56,7 +56,7 @@ Não-membro recebe 404. A regra vive numa política pura do domínio (`Can(role,
 
 Toda entidade nova a partir da fase 4 nasce sync-ready, e "registrar no sync" é critério de aceite da fase dela. Expense, Shopping e Checklist ficam fora até existirem; o sync é pluggable para recebê-los.
 
-Pacotes: `trip`, `user`, `itinerary`, `place` (Place e Restaurant), `booking` (Flight, Hotel e Ticket), `transfer`, `document`, `sync`. Cada um segue o mesmo padrão: pacote raiz (entidades e use cases), `httpapi/` e `mongorepo/`, nomes que não colidem com `net/http` nem com o driver `mongo`. Os pacotes se falam pelo `Authorizer` (interface no consumidor), sem ciclos.
+Pacotes: `trip`, `user`, `itinerary`, `expense`, `place` (Place e Restaurant), `booking` (Flight, Hotel e Ticket), `transfer`, `document`, `sync`. Cada um segue o mesmo padrão: pacote raiz (entidades e use cases), `httpapi/` e `mongorepo/`, nomes que não colidem com `net/http` nem com o driver `mongo`. Os pacotes se falam pelo `Authorizer` (interface no consumidor), sem ciclos.
 
 ## 4. Regras transversais de domínio
 
@@ -190,3 +190,12 @@ Um ingresso é a reserva de algo a fazer (show, museu, passeio): nome, tipo, **o
 **O arquivo é um documento, não uma cópia.** O ingresso guarda só o `documentId`. Enviar o arquivo pelo ingresso cria um `Document` do tipo `TICKET` pelo fluxo normal de upload, então ele aparece também em Documentos; vincular um documento já importado apenas grava o id, sem enviar de novo. Regras: o documento precisa estar `READY` e ser visível ao autor da mudança (o privado de outra pessoa é recusado); só um arquivo novo para o ingresso é verificado, para que um ingresso antigo cujo arquivo foi apagado continue editável. Apagar o documento deixa o ingresso sem arquivo, e o cliente trata a referência solta. `documentId: null` tira o arquivo sem apagar o documento.
 
 O pacote `booking` não conhece o `document`: recebe a porta `DocumentReader` (`Readable`), que `document.Documents` implementa. Sem documentos no servidor (falta `STORAGE_SIGNING_SECRET`), o ingresso funciona, só não aceita `documentId`.
+
+## Gastos e orçamento (pacote `expense`)
+
+Dois recursos por viagem, ambos com sync:
+
+- **`Expense`**: uma linha de dinheiro (refeição, lembrança, roupa, eletrônico...). `PLANNED` é algo que se pretende comprar e conta pelo `estimate`; `PAID` já foi gasto e conta pelo `actual` (o `estimate` pode ficar para comparar). Regras: precisa de `estimate` ou de `actual`; `PAID` exige `actual`; `PLANNED` não pode ter `actual`; as duas quantias na mesma moeda. Tem `category` (FOOD, LODGING, TRANSPORT, ACTIVITIES, SOUVENIRS, CLOTHES, ELECTRONICS, OTHER), `date` civil opcional e um `link {type,id}` opcional para um lugar, restaurante, item do roteiro, ingresso, hospedagem, voo ou transfer. Como nos documentos, o vínculo só valida o tipo e o formato do id: o cliente trata a referência solta (o lugar foi apagado) como "local removido".
+- **`BudgetLimit`**: o máximo da viagem (`TOTAL`) ou de uma categoria. Uma por categoria em cada viagem (índice único entre as vivas e `409 budget_exists`).
+
+**Os totais são do cliente.** O servidor guarda linhas e limites e não soma nada, porque a soma depende da moeda da viagem e do que o cliente mostra: gasto (`PAID` no `actual`), a gastar (`PLANNED` no `estimate`), previsto (a soma dos dois) e restante (limite menos previsto). Uma linha em moeda diferente da viagem fica fora da soma e é contada à parte, nunca misturada. Sem conversão de câmbio de propósito: converter exige uma cotação, e uma cotação errada esconde o estouro do orçamento.
