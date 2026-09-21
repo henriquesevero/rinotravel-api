@@ -28,6 +28,8 @@ tags:
     description: Lista de desejos de lugares e restaurantes, e a busca no Google Places.
   - name: Bookings
     description: Voos e hospedagens.
+  - name: Expenses
+    description: Gastos da viagem (planejados e pagos), ligados a lugares, e o orçamento por categoria.
   - name: Transfers
     description: Deslocamentos em etapas e o planejamento de rotas.
   - name: Documents
@@ -1245,6 +1247,390 @@ paths:
     delete:
       tags: [Bookings]
       operationId: deleteHotel
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/tickets:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Bookings]
+      operationId: listTickets
+      summary: Lista os ingressos
+      responses:
+        '200':
+          description: Lista de ingressos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Bookings]
+      operationId: createTicket
+      summary: Cria o ingresso (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/tickets/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Bookings]
+      operationId: getTicket
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Bookings]
+      operationId: updateTicket
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Bookings]
+      operationId: deleteTicket
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/expenses:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Expenses]
+      operationId: listExpenses
+      summary: Lista os gastos
+      responses:
+        '200':
+          description: Lista de os gastos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Expenses]
+      operationId: createExpense
+      summary: Cria o gasto (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/expenses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Expenses]
+      operationId: getExpense
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Expenses]
+      operationId: updateExpense
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpensePatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Expenses]
+      operationId: deleteExpense
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/trips/{tripId}/budget-limits:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Expenses]
+      operationId: listBudgetLimits
+      summary: Lista os limites de orçamento
+      responses:
+        '200':
+          description: Lista de os limites de orçamento.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BudgetLimit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Expenses]
+      operationId: createBudgetLimit
+      summary: Cria o limite de orçamento (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetLimitCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLimit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/budget-limits/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Expenses]
+      operationId: getBudgetLimit
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLimit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Expenses]
+      operationId: updateBudgetLimit
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetLimitPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLimit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Expenses]
+      operationId: deleteBudgetLimit
       summary: Remove (soft delete; deixa um tombstone para o sync)
       responses:
         '204':
@@ -2594,7 +2980,7 @@ components:
         kind:
           type: string
           description: Origem da entrada.
-          enum: [itinerary_item, flight_departure, flight_arrival, hotel_check_in, hotel_check_out, transfer, restaurant_reservation]
+          enum: [itinerary_item, flight_departure, flight_arrival, hotel_check_in, hotel_check_out, transfer, restaurant_reservation, ticket]
         id:
           type: string
           description: Id do registro de origem.
@@ -3020,6 +3406,291 @@ components:
               type: string
             bookingUrl:
               type: string
+            notes:
+              type: string
+
+    ExpenseCategory:
+      type: string
+      enum: [FOOD, LODGING, TRANSPORT, ACTIVITIES, SOUVENIRS, CLOTHES, ELECTRONICS, OTHER]
+
+    ExpenseStatus:
+      type: string
+      description: |
+        `PLANNED` é algo que se pretende comprar ou pagar (conta pelo `estimate`); `PAID` já foi gasto
+        (conta pelo `actual`).
+      enum: [PLANNED, PAID]
+
+    ExpenseLink:
+      type: object
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [place, restaurant, itinerary_item, ticket, hotel, flight, transfer]
+        id:
+          type: string
+          format: uuid
+
+    Expense:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [name, category, status]
+          description: |
+            Uma linha de gasto: uma refeição, uma lembrança, uma jaqueta. Precisa de `estimate` ou de
+            `actual`. Com `link` ela fica pendurada em um lugar da viagem (a loja onde será comprada).
+          properties:
+            name:
+              type: string
+            category:
+              $ref: '#/components/schemas/ExpenseCategory'
+            status:
+              $ref: '#/components/schemas/ExpenseStatus'
+            estimate:
+              $ref: '#/components/schemas/Money'
+            actual:
+              $ref: '#/components/schemas/Money'
+            date:
+              type: string
+              format: date
+              description: Dia em que foi ou será pago.
+            link:
+              $ref: '#/components/schemas/ExpenseLink'
+            notes:
+              type: string
+
+    ExpenseCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        name:
+          type: string
+        category:
+          $ref: '#/components/schemas/ExpenseCategory'
+        status:
+          $ref: '#/components/schemas/ExpenseStatus'
+        estimate:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        actual:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        date:
+          type: [string, 'null']
+          format: date
+        link:
+          oneOf:
+            - $ref: '#/components/schemas/ExpenseLink'
+            - type: 'null'
+        notes:
+          type: string
+
+    ExpensePatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            category:
+              $ref: '#/components/schemas/ExpenseCategory'
+            status:
+              $ref: '#/components/schemas/ExpenseStatus'
+            estimate:
+              oneOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
+            actual:
+              oneOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
+            date:
+              type: [string, 'null']
+              format: date
+            link:
+              oneOf:
+                - $ref: '#/components/schemas/ExpenseLink'
+                - type: 'null'
+            notes:
+              type: string
+
+    BudgetLimit:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [category, amount]
+          description: |
+            O máximo que a viagem toda (`TOTAL`) ou uma categoria deve custar. Há um limite por categoria
+            em cada viagem; repetir devolve `budget_exists`.
+          properties:
+            category:
+              type: string
+              enum: [TOTAL, FOOD, LODGING, TRANSPORT, ACTIVITIES, SOUVENIRS, CLOTHES, ELECTRONICS, OTHER]
+            amount:
+              $ref: '#/components/schemas/Money'
+
+    BudgetLimitCreate:
+      type: object
+      additionalProperties: false
+      required: [category, amount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum: [TOTAL, FOOD, LODGING, TRANSPORT, ACTIVITIES, SOUVENIRS, CLOTHES, ELECTRONICS, OTHER]
+        amount:
+          $ref: '#/components/schemas/Money'
+
+    BudgetLimitPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            amount:
+              $ref: '#/components/schemas/Money'
+
+    TicketKind:
+      type: string
+      enum: [ATTRACTION, SHOW, MUSEUM, SPORT, TOUR, TRANSPORT, OTHER]
+
+    Ticket:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [name, kind, quantity, status]
+          description: |
+            Ingresso de algo a fazer (show, museu, passeio). `location` é onde ele é usado e coloca a
+            visita no mapa do dia; com `start` ele entra na linha do tempo do dia. O arquivo é um
+            documento da viagem (`documentId`), que continua listado em `/documents`.
+          properties:
+            name:
+              type: string
+            kind:
+              $ref: '#/components/schemas/TicketKind'
+            location:
+              $ref: '#/components/schemas/Location'
+            start:
+              $ref: '#/components/schemas/ZonedTime'
+            end:
+              $ref: '#/components/schemas/ZonedTime'
+            quantity:
+              type: integer
+              minimum: 1
+              maximum: 999
+            confirmationCode:
+              type: string
+              description: Omitido para VIEWER.
+            seat:
+              type: string
+              description: Setor, fileira, portão ou horário marcado.
+            cost:
+              $ref: '#/components/schemas/Money'
+            status:
+              $ref: '#/components/schemas/PlanStatus'
+            documentId:
+              type: string
+              format: uuid
+              description: Documento da viagem com o arquivo do ingresso. Pode apontar para um arquivo que o usuário não vê (privado de outra pessoa) ou já removido.
+            notes:
+              type: string
+
+    TicketCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/TicketKind'
+        status:
+          $ref: '#/components/schemas/PlanStatus'
+        location:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        start:
+          oneOf:
+            - $ref: '#/components/schemas/ZonedTime'
+            - type: 'null'
+        end:
+          oneOf:
+            - $ref: '#/components/schemas/ZonedTime'
+            - type: 'null'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 999
+        confirmationCode:
+          type: string
+        seat:
+          type: string
+        cost:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        documentId:
+          type: [string, 'null']
+          format: uuid
+          description: Um documento pronto (READY) da viagem que o usuário possa ver.
+        notes:
+          type: string
+
+    TicketPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            kind:
+              $ref: '#/components/schemas/TicketKind'
+            status:
+              $ref: '#/components/schemas/PlanStatus'
+            location:
+              oneOf:
+                - $ref: '#/components/schemas/Location'
+                - type: 'null'
+            start:
+              oneOf:
+                - $ref: '#/components/schemas/ZonedTime'
+                - type: 'null'
+            end:
+              oneOf:
+                - $ref: '#/components/schemas/ZonedTime'
+                - type: 'null'
+            quantity:
+              type: integer
+              minimum: 1
+              maximum: 999
+            confirmationCode:
+              type: string
+            seat:
+              type: string
+            cost:
+              oneOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
+            documentId:
+              type: [string, 'null']
+              format: uuid
+              description: '`null` tira o arquivo do ingresso (o documento continua nos documentos).'
             notes:
               type: string
 

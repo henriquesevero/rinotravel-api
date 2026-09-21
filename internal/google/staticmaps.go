@@ -82,6 +82,35 @@ var groupColors = []string{"0x2563EB", "0xF97316", "0x16A34A", "0x7C3AED", "0xDB
 
 func groupColor(group int) string { return groupColors[group%len(groupColors)] }
 
+// markerPoint is where the pin of stop i goes. A stop with coordinates is pinned there. One known only
+// by a name is pinned where the route to it ends (or, for the first stop, where the route from it
+// begins): the map service reads a bare name in the language of the request and can put it in another
+// country, while the route was already found for the right place.
+func markerPoint(spec daymap.DaySpec, i int) string {
+	stop := spec.Stops[i].Location
+	if stop.Coordinates != nil {
+		return point(stop)
+	}
+	for _, path := range spec.Paths {
+		if path.To != i || path.To <= path.From {
+			continue
+		}
+		if points := decodePolyline(path.Encoded); len(points) > 0 {
+			end := points[len(points)-1]
+			return fmt.Sprintf("%.6f,%.6f", end.lat, end.lng)
+		}
+	}
+	for _, path := range spec.Paths {
+		if path.From != i || path.To <= path.From {
+			continue
+		}
+		if points := decodePolyline(path.Encoded); len(points) > 0 {
+			return fmt.Sprintf("%.6f,%.6f", points[0].lat, points[0].lng)
+		}
+	}
+	return point(stop)
+}
+
 func staticDayURL(base, key string, spec daymap.DaySpec) string {
 	build := func(paths []daymap.Path) string {
 		q := url.Values{}
@@ -92,12 +121,12 @@ func staticDayURL(base, key string, spec daymap.DaySpec) string {
 		if spec.Language != "" {
 			q.Set("language", spec.Language)
 		}
-		for _, stop := range spec.Stops {
+		for i, stop := range spec.Stops {
 			marker := "color:" + groupColor(stop.Group)
 			if stop.Label != "" {
 				marker += "|label:" + stop.Label
 			}
-			q.Add("markers", marker+"|"+point(stop.Location))
+			q.Add("markers", marker+"|"+markerPoint(spec, i))
 		}
 		for _, path := range paths {
 			q.Add("path", "color:"+groupColor(path.Group)+"D0|weight:5|enc:"+path.Encoded)

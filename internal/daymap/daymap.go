@@ -96,10 +96,12 @@ type Marker struct {
 	Location kernel.Location
 }
 
-// Path is the line of one trip, in the colour of its group.
+// Path is the line of one trip, in the colour of its group. From and To are the stops it joins, so a
+// stop known only by name can be pinned where the line begins or ends.
 type Path struct {
-	Encoded string
-	Group   int
+	Encoded  string
+	Group    int
+	From, To int
 }
 
 // DaySpec is what a picture of the route needs.
@@ -161,7 +163,7 @@ func (s *Service) Plan(ctx context.Context, actor user.ID, tripID trip.ID, in Re
 		for _, leg := range legs {
 			if leg.Polyline != "" {
 				// A trip belongs to the day it arrives in: the walk from the hotel is that morning's.
-				paths = append(paths, Path{Encoded: leg.Polyline, Group: stops[leg.To].Group})
+				paths = append(paths, Path{Encoded: leg.Polyline, Group: stops[leg.To].Group, From: leg.From, To: leg.To})
 			}
 		}
 		image, err := s.renderer.RenderDay(ctx, DaySpec{Stops: stops, Paths: paths, Language: in.Language})

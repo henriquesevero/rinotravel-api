@@ -133,3 +133,24 @@ func TestStaticDayURL_ColoursEachDayAndAllowsUnlabelledPins(t *testing.T) {
 		t.Errorf("unlabelled pin wrongly drawn: %s", raw)
 	}
 }
+
+func TestStaticDayURL_PinsAStopKnownOnlyByNameWhereItsRouteEnds(t *testing.T) {
+	// Two stops with a name and nothing else: the route between them already found the right places,
+	// so the pins go to its ends rather than to whatever the bare names mean to the picture service.
+	spec := daymap.DaySpec{
+		Stops: []daymap.Marker{
+			{Label: "1", Location: kernel.Location{Name: "JFK"}},
+			{Label: "2", Location: kernel.Location{Name: "Grand Central"}},
+		},
+		Paths: []daymap.Path{{Encoded: googleExample, From: 0, To: 1}},
+	}
+	raw := staticDayURL("https://maps.example", "the-key", spec)
+	for _, want := range []string{"label%3A1%7C38.500000%2C-120.200000", "label%3A2%7C43.252000%2C-126.453000"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("missing %s in %s", want, raw)
+		}
+	}
+	if strings.Contains(raw, "Grand+Central") {
+		t.Errorf("a name was still sent for a stop that has a route: %s", raw)
+	}
+}

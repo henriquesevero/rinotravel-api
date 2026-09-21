@@ -758,3 +758,160 @@ func marshal(t *testing.T, v any) string {
 	}
 	return string(b)
 }
+
+// readyDocument uploads and confirms a document the way a client does, and returns its id.
+func (w world) readyDocument(t *testing.T, who apitest.Account, body string) string {
+	t.Helper()
+	res := w.post(t, "/documents", who, body)
+	doc, upload := res["document"].(map[string]any), res["upload"].(map[string]any)
+	key := strings.TrimPrefix(upload["url"].(string), "https://storage.test/upload/")
+	w.Storage.Put(key, 2048, checksum)
+	id := doc["id"].(string)
+	if rec := w.Do("POST", w.base+"/documents/"+id+"/complete", who.Token, ""); rec.Code != 200 {
+		t.Fatalf("complete = %d %s", rec.Code, rec.Body)
+	}
+	return id
+}
+
+func TestTicketsLinkADocumentAndJoinTheTimeline(t *testing.T) {
+	w := newWorld(t)
+	docBody := func(vis string) string {
+		return `{"name":"Ingresso Hamilton","type":"TICKET","fileName":"hamilton.pdf","mimeType":"application/pdf","size":2048,"checksum":"` + checksum + `","visibility":"` + vis + `"}`
+	}
+	doc := w.readyDocument(t, w.ana, docBody("TRIP"))
+
+	ticket := w.post(t, "/tickets", w.ana, `{"name":"Hamilton","kind":"SHOW","location":{"name":"Richard Rodgers Theatre","address":"226 W 46th St"},"start":{"dateTime":"2027-04-03T19:00"},"end":{"dateTime":"2027-04-03T21:45"},"quantity":2,"seat":"Orquestra F 12-13","confirmationCode":"HAM123","documentId":"`+doc+`"}`)
+	if ticket["kind"] != "SHOW" || ticket["quantity"] != float64(2) || ticket["documentId"] != doc || ticket["status"] != "PLANNED" ||
+		ticket["start"].(map[string]any)["timezone"] != "Asia/Tokyo" || ticket["location"].(map[string]any)["name"] != "Richard Rodgers Theatre" {
+		t.Fatalf("ticket = %v", ticket)
+	}
+	id := ticket["id"].(string)
+
+	// A viewer sees the ticket and its file, but not the confirmation code.
+	seen := w.get(t, "/tickets/"+id, w.bia)
+	if _, leaked := seen["confirmationCode"]; leaked || seen["documentId"] != doc {
+		t.Errorf("viewer sees %v", seen)
+	}
+
+	// A ticket with a time is a line of its day on the timeline.
+	var found bool
+	for _, d := range w.get(t, "/itinerary", w.ana)["days"].([]any) {
+		day := d.(map[string]any)
+		if day["date"] != "2027-04-03" {
+			continue
+		}
+		for _, e := range day["entries"].([]any) {
+			entry := e.(map[string]any)
+			if entry["kind"] == "ticket" && entry["id"] == id && entry["title"] == "Hamilton" && entry["subtitle"] == "SHOW" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("the ticket is missing from its day on the timeline")
+	}
+
+	// Without a time it is not on the timeline, and the file can be taken off it.
+	loose := w.post(t, "/tickets", w.ana, `{"name":"Museu"}`)
+	if loose["quantity"] != float64(1) || loose["kind"] != "ATTRACTION" {
+		t.Errorf("defaults = %v", loose)
+	}
+	cleared := apitest.Decode(t, w.Do("PATCH", w.base+"/tickets/"+id, w.ana.Token, `{"baseVersion":1,"documentId":null}`))
+	if _, still := cleared["documentId"]; still {
+		t.Errorf("documentId = %v after clearing", cleared["documentId"])
+	}
+}
+
+func TestTicketFilesAndRules(t *testing.T) {
+	w := newWorld(t)
+	private := w.readyDocument(t, w.ana, `{"name":"Passaporte","type":"PASSPORT","fileName":"p.pdf","mimeType":"application/pdf","size":2048,"checksum":"`+checksum+`"}`)
+	pending := w.post(t, "/documents", w.ana, `{"name":"Pendente","type":"TICKET","fileName":"x.pdf","mimeType":"application/pdf","size":2048,"checksum":"`+checksum+`"}`)["document"].(map[string]any)["id"].(string)
+
+	for name, body := range map[string]string{
+		"no name":           `{"kind":"SHOW"}`,
+		"bad kind":          `{"name":"X","kind":"CIRCUS"}`,
+		"end before start":  `{"name":"X","start":{"dateTime":"2027-04-03T20:00"},"end":{"dateTime":"2027-04-03T19:00"}}`,
+		"end without start": `{"name":"X","end":{"dateTime":"2027-04-03T19:00"}}`,
+		"zero tickets":      `{"name":"X","quantity":0}`,
+		"not a uuid":        `{"name":"X","documentId":"abc"}`,
+		"unknown document":  `{"name":"X","documentId":"01a0c09e-ba92-7abe-96c8-0b4d06f661f4"}`,
+		"unfinished file":   `{"name":"X","documentId":"` + pending + `"}`,
+	} {
+		t.Run(name, func(t *testing.T) { w.problem(t, "POST", "/tickets", w.ana, body, 422, "validation_failed") })
+	}
+
+	// Somebody else's private document cannot be attached to a ticket.
+	w.AddMember(t, w.trip, w.ana, w.caio, "MEMBER")
+	w.problem(t, "POST", "/tickets", w.caio, `{"name":"X","documentId":"`+private+`"}`, 422, "validation_failed")
+
+	// A viewer cannot create tickets.
+	w.problem(t, "POST", "/tickets", w.bia, `{"name":"X"}`, 403, "forbidden")
+}
+
+func TestExpensesPlannedAndPaid(t *testing.T) {
+	w := newWorld(t)
+	store := "01a0c09e-ba92-7abe-96c8-0b4d06f661f4"
+
+	// Something meant to be bought: it has an estimate, is tied to a shop and is not paid yet.
+	want := w.post(t, "/expenses", w.ana, `{"name":"Switch OLED","category":"ELECTRONICS","estimate":{"amount":34999,"currency":"USD"},"link":{"type":"place","id":"`+store+`"}}`)
+	if want["status"] != "PLANNED" || want["category"] != "ELECTRONICS" || want["link"].(map[string]any)["id"] != store || want["actual"] != nil {
+		t.Fatalf("planned expense = %v", want)
+	}
+	id := want["id"].(string)
+
+	// Buying it records what was really paid and keeps the estimate to compare against.
+	bought := apitest.Decode(t, w.Do("PATCH", w.base+"/expenses/"+id, w.ana.Token, `{"baseVersion":1,"status":"PAID","actual":{"amount":32999,"currency":"USD"},"date":"2027-04-05"}`))
+	if bought["status"] != "PAID" || bought["actual"].(map[string]any)["amount"] != float64(32999) || bought["estimate"].(map[string]any)["amount"] != float64(34999) || bought["date"] != "2027-04-05" {
+		t.Errorf("paid expense = %v", bought)
+	}
+
+	// The link can be taken off and the expense is still there.
+	cleared := apitest.Decode(t, w.Do("PATCH", w.base+"/expenses/"+id, w.ana.Token, `{"baseVersion":2,"link":null}`))
+	if _, still := cleared["link"]; still {
+		t.Errorf("link = %v after clearing", cleared["link"])
+	}
+
+	// Read by everyone in the trip, changed only by those who may.
+	if items := w.get(t, "/expenses", w.bia)["items"].([]any); len(items) != 1 {
+		t.Errorf("a viewer sees %d expenses, want 1", len(items))
+	}
+	w.problem(t, "POST", "/expenses", w.bia, `{"name":"x","estimate":{"amount":100,"currency":"USD"}}`, 403, "forbidden")
+
+	for name, body := range map[string]string{
+		"no name":           `{"estimate":{"amount":100,"currency":"USD"}}`,
+		"no amount at all":  `{"name":"Almoço"}`,
+		"paid without paid": `{"name":"Almoço","status":"PAID","estimate":{"amount":100,"currency":"USD"}}`,
+		"planned but paid":  `{"name":"Almoço","status":"PLANNED","actual":{"amount":100,"currency":"USD"}}`,
+		"negative":          `{"name":"Almoço","estimate":{"amount":-1,"currency":"USD"}}`,
+		"bad category":      `{"name":"Almoço","category":"YACHT","estimate":{"amount":100,"currency":"USD"}}`,
+		"bad date":          `{"name":"Almoço","estimate":{"amount":100,"currency":"USD"},"date":"tomorrow"}`,
+		"bad link type":     `{"name":"Almoço","estimate":{"amount":100,"currency":"USD"},"link":{"type":"moon","id":"` + store + `"}}`,
+		"bad link id":       `{"name":"Almoço","estimate":{"amount":100,"currency":"USD"},"link":{"type":"place","id":"nope"}}`,
+		"mixed currencies":  `{"name":"Almoço","status":"PAID","estimate":{"amount":100,"currency":"USD"},"actual":{"amount":100,"currency":"BRL"}}`,
+		"unknown currency":  `{"name":"Almoço","estimate":{"amount":100,"currency":"ZZZ"}}`,
+	} {
+		t.Run(name, func(t *testing.T) { w.problem(t, "POST", "/expenses", w.ana, body, 422, "validation_failed") })
+	}
+}
+
+func TestBudgetHasOneLimitPerCategory(t *testing.T) {
+	w := newWorld(t)
+	total := w.post(t, "/budget-limits", w.ana, `{"category":"TOTAL","amount":{"amount":500000,"currency":"USD"}}`)
+	w.post(t, "/budget-limits", w.ana, `{"category":"FOOD","amount":{"amount":120000,"currency":"USD"}}`)
+	w.problem(t, "POST", "/budget-limits", w.ana, `{"category":"TOTAL","amount":{"amount":1,"currency":"USD"}}`, 409, "budget_exists")
+	w.problem(t, "POST", "/budget-limits", w.ana, `{"category":"YACHT","amount":{"amount":1,"currency":"USD"}}`, 422, "validation_failed")
+	w.problem(t, "POST", "/budget-limits", w.bia, `{"category":"CLOTHES","amount":{"amount":1,"currency":"USD"}}`, 403, "forbidden")
+
+	raised := apitest.Decode(t, w.Do("PATCH", w.base+"/budget-limits/"+total["id"].(string), w.ana.Token, `{"baseVersion":1,"amount":{"amount":650000,"currency":"USD"}}`))
+	if raised["amount"].(map[string]any)["amount"] != float64(650000) || raised["category"] != "TOTAL" {
+		t.Errorf("raised = %v", raised)
+	}
+	if items := w.get(t, "/budget-limits", w.bia)["items"].([]any); len(items) != 2 {
+		t.Errorf("a viewer sees %d limits, want 2", len(items))
+	}
+	// A limit that was removed can be set again.
+	if rec := w.Do("DELETE", w.base+"/budget-limits/"+total["id"].(string), w.ana.Token, ""); rec.Code != 204 {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body)
+	}
+	w.post(t, "/budget-limits", w.ana, `{"category":"TOTAL","amount":{"amount":100,"currency":"USD"}}`)
+}

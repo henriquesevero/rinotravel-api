@@ -16,11 +16,13 @@ type Deps struct {
 	Guard   authapi.Guard
 	Flights *booking.Flights
 	Hotels  *booking.Hotels
+	Tickets *booking.Tickets
 }
 
 type Handler struct {
 	Flights httpres.Routes[booking.Flight, booking.FlightCreate, booking.FlightPatch]
 	Hotels  httpres.Routes[booking.Hotel, booking.HotelCreate, booking.HotelPatch]
+	Tickets httpres.Routes[booking.Ticket, booking.TicketCreate, booking.TicketPatch]
 }
 
 func New(d Deps) *Handler {
@@ -35,16 +37,22 @@ func New(d Deps) *Handler {
 			Service: d.Hotels.Resource(), Create: d.Hotels.Create, Update: d.Hotels.Update,
 			Present: func(h booking.Hotel, role trip.Role) any { return presentHotel(h, role) },
 		},
+		Tickets: httpres.Routes[booking.Ticket, booking.TicketCreate, booking.TicketPatch]{
+			Logger: d.Logger, Guard: d.Guard, Path: "/api/v1/trips/{tripId}/tickets",
+			Service: d.Tickets.Resource(), Create: d.Tickets.Create, Update: d.Tickets.Update,
+			Present: func(t booking.Ticket, role trip.Role) any { return presentTicket(t, role) },
+		},
 	}
 }
 
 func (h *Handler) Mount(mux *http.ServeMux) {
 	h.Flights.Mount(mux)
 	h.Hotels.Mount(mux)
+	h.Tickets.Mount(mux)
 }
 
 func (h *Handler) SyncSources() []syncengine.Source {
-	return []syncengine.Source{h.Flights.SyncSource("flight"), h.Hotels.SyncSource("hotel")}
+	return []syncengine.Source{h.Flights.SyncSource("flight"), h.Hotels.SyncSource("hotel"), h.Tickets.SyncSource("ticket")}
 }
 
 // canSeeCodes reports whether the role may read booking and confirmation codes. Sync uses the same
@@ -102,6 +110,34 @@ func presentHotel(h booking.Hotel, role trip.Role) HotelResponse {
 	}
 	if canSeeCodes(role) {
 		resp.ConfirmationCode = h.ConfirmationCode
+	}
+	return resp
+}
+
+type TicketResponse struct {
+	httpres.Meta
+	Name             string                `json:"name"`
+	Kind             string                `json:"kind"`
+	Location         *httpres.LocationDTO  `json:"location,omitempty"`
+	Start            *httpres.ZonedTimeDTO `json:"start,omitempty"`
+	End              *httpres.ZonedTimeDTO `json:"end,omitempty"`
+	Quantity         int                   `json:"quantity"`
+	ConfirmationCode string                `json:"confirmationCode,omitempty"`
+	Seat             string                `json:"seat,omitempty"`
+	Cost             *httpres.MoneyDTO     `json:"cost,omitempty"`
+	Status           string                `json:"status"`
+	DocumentID       string                `json:"documentId,omitempty"`
+	Notes            string                `json:"notes,omitempty"`
+}
+
+func presentTicket(t booking.Ticket, role trip.Role) TicketResponse {
+	resp := TicketResponse{
+		Meta: httpres.MetaOf(t.Base), Name: t.Name, Kind: string(t.Kind), Location: httpres.LocationOf(t.Location),
+		Start: httpres.ZonedOf(t.Start), End: httpres.ZonedOf(t.End), Quantity: t.Quantity, Seat: t.Seat,
+		Cost: httpres.MoneyOf(t.Cost), Status: string(t.Status), DocumentID: t.DocumentID, Notes: t.Notes,
+	}
+	if canSeeCodes(role) {
+		resp.ConfirmationCode = t.ConfirmationCode
 	}
 	return resp
 }

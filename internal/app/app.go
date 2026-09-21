@@ -22,6 +22,9 @@ import (
 	"rinotravel-api/internal/document/gridfs"
 	documentapi "rinotravel-api/internal/document/httpapi"
 	documentmongo "rinotravel-api/internal/document/mongorepo"
+	"rinotravel-api/internal/expense"
+	expenseapi "rinotravel-api/internal/expense/httpapi"
+	expensemongo "rinotravel-api/internal/expense/mongorepo"
 	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/itinerary"
 	itineraryapi "rinotravel-api/internal/itinerary/httpapi"
@@ -87,8 +90,11 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	restaurants := placemongo.NewRestaurantStore(d.DB)
 	flights := bookingmongo.NewFlightStore(d.DB)
 	hotels := bookingmongo.NewHotelStore(d.DB)
+	tickets := bookingmongo.NewTicketStore(d.DB)
 	transfers := transfermongo.NewStore(d.DB)
 	documents := documentmongo.NewStore(d.DB)
+	expenses := expensemongo.NewExpenseStore(d.DB)
+	limits := expensemongo.NewLimitStore(d.DB)
 
 	for _, ensure := range []func(context.Context) error{
 		users.EnsureIndexes, sessions.EnsureIndexes, trips.EnsureIndexes, mutations.EnsureIndexes,
@@ -98,8 +104,11 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		func(ctx context.Context) error { return restaurants.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return flights.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return hotels.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return tickets.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return transfers.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return documents.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return expenses.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return limits.EnsureIndexes(ctx, expensemongo.LimitIndexes()...) },
 	} {
 		if err := ensure(ctx); err != nil {
 			return nil, err
@@ -135,6 +144,7 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		} else {
 			d.Logger.Warn("google calls are NOT capped: GOOGLE_MONTHLY_LIMIT is 0, usage past the free allowance is billed")
 		}
+		routeProvider = google.NewEnglishFallback(routeProvider)
 		placesDeps.Search = place.NewSearchPlaces(placeProvider, d.Logger)
 		placesDeps.SearchLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
 		placesDeps.Maps = place.NewLocationMaps(mapRenderer.(place.PinRenderer), authz, d.Logger)
@@ -151,29 +161,36 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	placesHandler := placeapi.New(placesDeps)
 	reg.add(placesHandler, placesHandler.SyncSources()...)
 
-	bookingHandler := bookingapi.New(bookingapi.Deps{
+	expenseHandler := expenseapi.New(expenseapi.Deps{
 		Logger: d.Logger, Guard: guard,
-		Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz),
+		Expenses: expense.NewExpenses(expenses, authz), Limits: expense.NewLimits(limits, authz),
 	})
-	reg.add(bookingHandler, bookingHandler.SyncSources()...)
+	reg.add(expenseHandler, expenseHandler.SyncSources()...)
 
 	transferHandler := transferapi.New(transferDeps)
 	reg.add(transferHandler, transferHandler.SyncSources()...)
 
+	// Tickets can point at a file in the documents; without documents there is nothing to point at.
+	var documentService *document.Documents
 	if d.Config.StorageSigningSecret != "" {
 		storage, err := gridfs.New(d.DB, gridfs.Config{Secret: d.Config.StorageSigningSecret, PublicURL: d.Config.APIPublicURL}, d.Logger)
 		if err != nil {
 			return nil, err
 		}
-		documentHandler := documentapi.New(documentapi.Deps{
-			Logger: d.Logger, Guard: guard,
-			Documents: document.NewDocuments(documents, authz, storage, string(d.Config.Env), d.Logger),
-		})
+		documentService = document.NewDocuments(documents, authz, storage, string(d.Config.Env), d.Logger)
+		documentHandler := documentapi.New(documentapi.Deps{Logger: d.Logger, Guard: guard, Documents: documentService})
 		reg.add(documentHandler, documentHandler.SyncSource())
 		reg.add(storage)
 	} else {
 		d.Logger.Info("documents disabled: STORAGE_SIGNING_SECRET is not set")
 	}
+
+	bookingHandler := bookingapi.New(bookingapi.Deps{
+		Logger: d.Logger, Guard: guard,
+		Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz),
+		Tickets: booking.NewTickets(tickets, authz, documentReader(documentService)),
+	})
+	reg.add(bookingHandler, bookingHandler.SyncSources()...)
 
 	itineraryHandler := itineraryapi.New(itineraryapi.Deps{
 		Logger: d.Logger,
@@ -182,7 +199,7 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		Items:  itinerary.NewItems(items, days, authz),
 		Places: placesUC,
 		Timeline: itinerary.NewTimeline(days, items, authz,
-			place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels), transfer.NewTimelineSource(transfers)),
+			place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels, tickets), transfer.NewTimelineSource(transfers)),
 	})
 	reg.add(itineraryHandler, itineraryHandler.SyncSources()...)
 
@@ -223,4 +240,12 @@ func tripHandler(d Deps, trips *tripmongo.Repository, users *usermongo.Repositor
 		RemoveMember:      trip.NewRemoveMember(trips),
 		TransferOwnership: trip.NewTransferOwnership(trips),
 	})
+}
+
+// documentReader keeps a missing document service a nil interface, which the ticket rules test for.
+func documentReader(documents *document.Documents) booking.DocumentReader {
+	if documents == nil {
+		return nil
+	}
+	return documents
 }

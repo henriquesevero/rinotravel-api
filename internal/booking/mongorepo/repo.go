@@ -87,3 +87,46 @@ var hotelCodec = mongostore.Codec[booking.Hotel]{
 func NewHotelStore(db *mongo.Database) *mongostore.Store[booking.Hotel] {
 	return mongostore.New(db, "hotels", hotelCodec)
 }
+
+type ticketDoc struct {
+	Name             string                  `bson:"name"`
+	Kind             string                  `bson:"kind"`
+	Location         *mongostore.LocationDoc `bson:"location,omitempty"`
+	Start            *mongostore.ZonedDoc    `bson:"start,omitempty"`
+	End              *mongostore.ZonedDoc    `bson:"end,omitempty"`
+	Quantity         int                     `bson:"quantity"`
+	ConfirmationCode string                  `bson:"confirmationCode,omitempty"`
+	Seat             string                  `bson:"seat,omitempty"`
+	Cost             *mongostore.MoneyDoc    `bson:"cost,omitempty"`
+	Status           string                  `bson:"status"`
+	DocumentID       string                  `bson:"documentId,omitempty"`
+	Notes            string                  `bson:"notes,omitempty"`
+}
+
+var ticketCodec = mongostore.Codec[booking.Ticket]{
+	Base: booking.TicketBase,
+	Encode: func(t booking.Ticket) bson.D {
+		return mongostore.Marshal(ticketDoc{
+			Name: t.Name, Kind: string(t.Kind), Location: mongostore.LocationToDoc(t.Location),
+			Start: mongostore.ZonedToDoc(t.Start), End: mongostore.ZonedToDoc(t.End), Quantity: t.Quantity,
+			ConfirmationCode: t.ConfirmationCode, Seat: t.Seat, Cost: mongostore.MoneyToDoc(t.Cost),
+			Status: string(t.Status), DocumentID: t.DocumentID, Notes: t.Notes,
+		})
+	},
+	Decode: func(raw bson.Raw, base kernel.Base) (booking.Ticket, error) {
+		var d ticketDoc
+		if err := bson.Unmarshal(raw, &d); err != nil {
+			return booking.Ticket{}, err
+		}
+		return booking.Ticket{
+			Base: base, Name: d.Name, Kind: booking.TicketKind(d.Kind), Location: d.Location.ToLocation(),
+			Start: d.Start.ToZoned(), End: d.End.ToZoned(), Quantity: d.Quantity,
+			ConfirmationCode: d.ConfirmationCode, Seat: d.Seat, Cost: d.Cost.ToMoney(),
+			Status: kernel.PlanStatus(d.Status), DocumentID: d.DocumentID, Notes: d.Notes,
+		}, nil
+	},
+}
+
+func NewTicketStore(db *mongo.Database) *mongostore.Store[booking.Ticket] {
+	return mongostore.New(db, "tickets", ticketCodec)
+}

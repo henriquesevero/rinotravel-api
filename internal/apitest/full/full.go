@@ -17,6 +17,8 @@ import (
 	"rinotravel-api/internal/document"
 	"rinotravel-api/internal/document/documenttest"
 	documentapi "rinotravel-api/internal/document/httpapi"
+	"rinotravel-api/internal/expense"
+	expenseapi "rinotravel-api/internal/expense/httpapi"
 	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/itinerary"
 	itineraryapi "rinotravel-api/internal/itinerary/httpapi"
@@ -113,6 +115,9 @@ func New(t *testing.T) *Stack {
 		restaurants := resourcetest.New(place.RestaurantBase)
 		flights := resourcetest.New(booking.FlightBase)
 		hotels := resourcetest.New(booking.HotelBase)
+		tickets := resourcetest.New(booking.TicketBase)
+		expenses := resourcetest.New(expense.Base)
+		limits := resourcetest.New(expense.LimitBase)
 		transfers := resourcetest.New(transfer.Base)
 		documents := resourcetest.New(document.Base)
 
@@ -123,7 +128,10 @@ func New(t *testing.T) *Stack {
 			Maps:       place.NewLocationMaps(google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), authz, e.Logger),
 			MapLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
 		})
-		bookingH := bookingapi.New(bookingapi.Deps{Logger: e.Logger, Guard: e.Guard, Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz)})
+		documentService := document.NewDocuments(documents, authz, s.Storage, "test", e.Logger)
+		documentH := documentapi.New(documentapi.Deps{Logger: e.Logger, Guard: e.Guard, Documents: documentService})
+		bookingH := bookingapi.New(bookingapi.Deps{Logger: e.Logger, Guard: e.Guard, Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz), Tickets: booking.NewTickets(tickets, authz, documentService)})
+		expenseH := expenseapi.New(expenseapi.Deps{Logger: e.Logger, Guard: e.Guard, Expenses: expense.NewExpenses(expenses, authz), Limits: expense.NewLimits(limits, authz)})
 		routes := google.NewMeteredRoutes(s.Routes, s.Quota, GoogleLimit, e.Logger)
 		transferH := transferapi.New(transferapi.Deps{
 			Logger: e.Logger, Guard: e.Guard, Transfers: transfer.NewTransfers(transfers, authz),
@@ -131,18 +139,18 @@ func New(t *testing.T) *Stack {
 			Maps:       transfer.NewMaps(routes, google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), authz, e.Logger),
 			MapLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
 		})
-		documentH := documentapi.New(documentapi.Deps{Logger: e.Logger, Guard: e.Guard, Documents: document.NewDocuments(documents, authz, s.Storage, "test", e.Logger)})
 		itineraryH := itineraryapi.New(itineraryapi.Deps{
 			Logger: e.Logger, Guard: e.Guard, Days: itinerary.NewDays(days, items, authz), Items: itinerary.NewItems(items, days, authz),
 			Places: placesUC,
 			Timeline: itinerary.NewTimeline(days, items, authz,
-				place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels), transfer.NewTimelineSource(transfers)),
+				place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels, tickets), transfer.NewTimelineSource(transfers)),
 		})
 
 		var sources []syncengine.Source
 		sources = append(sources, itineraryH.SyncSources()...)
 		sources = append(sources, placeH.SyncSources()...)
 		sources = append(sources, bookingH.SyncSources()...)
+		sources = append(sources, expenseH.SyncSources()...)
 		sources = append(sources, transferH.SyncSources()...)
 		sources = append(sources, documentH.SyncSource())
 		if tripsHandler, ok := tripHandler(e); ok {
@@ -154,7 +162,7 @@ func New(t *testing.T) *Stack {
 			daymap.NewService(routes, google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), e.Authz, e.Logger),
 			httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)))
 
-		return []server.Module{placeH, bookingH, transferH, documentH, itineraryH, dayH, syncapi.New(e.Logger, e.Guard, engine)}
+		return []server.Module{placeH, bookingH, expenseH, transferH, documentH, itineraryH, dayH, syncapi.New(e.Logger, e.Guard, engine)}
 	})
 	return s
 }

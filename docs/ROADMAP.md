@@ -49,14 +49,14 @@ Não-membro recebe 404. A regra vive numa política pura do domínio (`Can(role,
 | 4 | **Pronta.** Itinerary: `Authorizer`, `ItineraryDay`, `ItineraryItem`, timeline calculada e unificada entre fontes, Place→Item |
 | 5 | **Pronta.** Sync: pull incremental por cursor, push de mutations, idempotência, conflitos, com fontes pluggáveis por entidade |
 | 6 | **Pronta.** Place e Restaurant (CRUD completo, registrados no sync) |
-| 7 | **Pronta.** Flight e Hotel, com duração e fusos derivados |
+| 7 | **Pronta.** Flight e Hotel, com duração e fusos derivados. Depois, Ticket (ingresso), ver abaixo |
 | 8 | **Pronta.** Transfer e etapas, com planejamento de rota |
 | 9 | **Pronta.** Documents no MongoDB GridFS (upload e download por link assinado, registrados no sync) |
 | 10 | **Pronta.** Adapters do Google (`PlaceProvider`, `RouteProvider`), com os ports nascendo aqui; opcionais, ligados pela chave, com teto mensal de chamadas contado no MongoDB (`GOOGLE_MONTHLY_LIMIT`) |
 
 Toda entidade nova a partir da fase 4 nasce sync-ready, e "registrar no sync" é critério de aceite da fase dela. Expense, Shopping e Checklist ficam fora até existirem; o sync é pluggable para recebê-los.
 
-Pacotes: `trip`, `user`, `itinerary`, `place` (Place e Restaurant), `booking` (Flight e Hotel), `transfer`, `document`, `sync`. Cada um segue o mesmo padrão: pacote raiz (entidades e use cases), `httpapi/` e `mongorepo/`, nomes que não colidem com `net/http` nem com o driver `mongo`. Os pacotes se falam pelo `Authorizer` (interface no consumidor), sem ciclos.
+Pacotes: `trip`, `user`, `itinerary`, `place` (Place e Restaurant), `booking` (Flight, Hotel e Ticket), `transfer`, `document`, `sync`. Cada um segue o mesmo padrão: pacote raiz (entidades e use cases), `httpapi/` e `mongorepo/`, nomes que não colidem com `net/http` nem com o driver `mongo`. Os pacotes se falam pelo `Authorizer` (interface no consumidor), sem ciclos.
 
 ## 4. Regras transversais de domínio
 
@@ -72,7 +72,7 @@ Pacotes: `trip`, `user`, `itinerary`, `place` (Place e Restaurant), `booking` (F
 
 **Valores derivados, não armazenados:** duração de item com início e fim; total e duração do Transfer (soma dos legs). Os legs ficam embutidos no Transfer, e a ordem é a posição no slice.
 
-**Timeline:** `GetItinerary` monta uma lista ordenada por dia com itens, voos, hotéis, transfers e reservas de restaurante, sem duplicar dados. Item manual só tem categorias RESTAURANT, ATTRACTION, SHOPPING, FREE_TIME e OTHER. FLIGHT, HOTEL e TRANSPORTATION saem, porque são entidades próprias. Sobreposição é permitida.
+**Timeline:** `GetItinerary` monta uma lista ordenada por dia com itens, voos, hotéis, ingressos com horário, transfers e reservas de restaurante, sem duplicar dados. Item manual só tem categorias RESTAURANT, ATTRACTION, SHOPPING, FREE_TIME e OTHER. FLIGHT, HOTEL e TRANSPORTATION saem, porque são entidades próprias. Sobreposição é permitida.
 
 **Segurança de dados**
 - Todo use case confirma que os filhos citados pertencem à `TripID` da rota (evita IDOR).
@@ -182,3 +182,11 @@ Estratégia inicial, explícita: **checagem otimista por versão**.
 5. `Visibility` em documentos (`PRIVATE` para passaporte).
 6. Limites: 25 MB, TTL de URL de 5 minutos, retenção de tombstones de 90 dias.
 7. Arquivos no MongoDB (GridFS), sem AWS nem MinIO.
+
+## Ingressos (`Ticket`, pacote `booking`)
+
+Um ingresso é a reserva de algo a fazer (show, museu, passeio): nome, tipo, **onde é usado** (`location`, que o põe no mapa do dia), quando (`start`/`end`, opcionais; com `start` ele entra na timeline do dia), quantidade, assento, código de confirmação (oculto para VIEWER), custo e situação.
+
+**O arquivo é um documento, não uma cópia.** O ingresso guarda só o `documentId`. Enviar o arquivo pelo ingresso cria um `Document` do tipo `TICKET` pelo fluxo normal de upload, então ele aparece também em Documentos; vincular um documento já importado apenas grava o id, sem enviar de novo. Regras: o documento precisa estar `READY` e ser visível ao autor da mudança (o privado de outra pessoa é recusado); só um arquivo novo para o ingresso é verificado, para que um ingresso antigo cujo arquivo foi apagado continue editável. Apagar o documento deixa o ingresso sem arquivo, e o cliente trata a referência solta. `documentId: null` tira o arquivo sem apagar o documento.
+
+O pacote `booking` não conhece o `document`: recebe a porta `DocumentReader` (`Readable`), que `document.Documents` implementa. Sem documentos no servidor (falta `STORAGE_SIGNING_SECRET`), o ingresso funciona, só não aceita `documentId`.

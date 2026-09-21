@@ -126,14 +126,15 @@ func applyHotel(cur Hotel, f HotelFields, access trip.Access, creating bool) (Ho
 	return h, v.Err()
 }
 
-// TimelineSource adds flights and hotel stays to the itinerary timeline.
+// TimelineSource adds flights, hotel stays and tickets to the itinerary timeline.
 type TimelineSource struct {
 	flights resource.Repo[Flight]
 	hotels  resource.Repo[Hotel]
+	tickets resource.Repo[Ticket]
 }
 
-func NewTimelineSource(flights resource.Repo[Flight], hotels resource.Repo[Hotel]) TimelineSource {
-	return TimelineSource{flights: flights, hotels: hotels}
+func NewTimelineSource(flights resource.Repo[Flight], hotels resource.Repo[Hotel], tickets resource.Repo[Ticket]) TimelineSource {
+	return TimelineSource{flights: flights, hotels: hotels, tickets: tickets}
 }
 
 func (t TimelineSource) Entries(ctx context.Context, tripID string) ([]kernel.TimelineEntry, error) {
@@ -151,6 +152,13 @@ func (t TimelineSource) Entries(ctx context.Context, tripID string) ([]kernel.Ti
 	}
 	for _, h := range hotels {
 		out = append(out, h.Entries()...)
+	}
+	tickets, err := t.tickets.List(ctx, tripID)
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range tickets {
+		out = append(out, k.Entries()...)
 	}
 	return out, nil
 }

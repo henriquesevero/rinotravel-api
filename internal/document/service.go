@@ -166,6 +166,20 @@ func (d *Documents) Get(ctx context.Context, actor user.ID, tripID trip.ID, id s
 	return res, nil
 }
 
+// Readable reports whether the actor can see a finished document of the trip. Other features use it
+// to attach a document to their own records without knowing how documents are stored.
+func (d *Documents) Readable(ctx context.Context, actor user.ID, tripID trip.ID, id string) (bool, error) {
+	res, err := d.Get(ctx, actor, tripID, id)
+	var app *apperror.Error
+	switch {
+	case errors.As(err, &app) && app.Kind == apperror.KindNotFound:
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return res.Entity.Status == StatusReady, nil
+}
+
 func (d *Documents) List(ctx context.Context, actor user.ID, tripID trip.ID) ([]Document, trip.Role, error) {
 	all, role, err := d.res.List(ctx, actor, tripID)
 	if err != nil {
