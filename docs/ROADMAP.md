@@ -199,3 +199,9 @@ Dois recursos por viagem, ambos com sync:
 - **`BudgetLimit`**: o máximo da viagem (`TOTAL`) ou de uma categoria. Uma por categoria em cada viagem (índice único entre as vivas e `409 budget_exists`).
 
 **Os totais são do cliente.** O servidor guarda linhas e limites e não soma nada, porque a soma depende da moeda da viagem e do que o cliente mostra: gasto (`PAID` no `actual`), a gastar (`PLANNED` no `estimate`), previsto (a soma dos dois) e restante (limite menos previsto). Uma linha em moeda diferente da viagem fica fora da soma e é contada à parte, nunca misturada. Sem conversão de câmbio de propósito: converter exige uma cotação, e uma cotação errada esconde o estouro do orçamento.
+
+### Custos que entram sozinhos nos gastos
+
+Os gastos digitados são só uma parte do dinheiro da viagem. O cliente junta a eles, a cada leitura, uma linha para cada registro que já traz um preço: item do roteiro (`estimatedCost`), restaurante (`estimatedCost`), ingresso (`cost`), deslocamento (`totalCost`, soma dos trechos), voo e hospedagem (`cost`, campo novo). Nada disso é copiado para `expenses`: é derivado, então mudar o preço no registro muda o gasto e apagar o registro apaga a linha, sem duplicar nem ficar velho.
+
+Regras da derivação: registro `SKIPPED` e restaurante `WISHLIST` (só uma ideia) ficam de fora; o que já aconteceu (a data ou o horário passou) ou está `COMPLETED`/`VISITED` conta como gasto, o resto como a gastar; uma linha derivada não tem "pago" próprio, o preço se edita onde o registro mora. Lugares da lista de desejos não entram, para não contar duas vezes o que depois vira item do roteiro. Voos e hospedagens guardam a própria moeda (quem compra em reais e viaja aos EUA), e uma linha em outra moeda que a da viagem fica fora da soma e é contada à parte.

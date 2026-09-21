@@ -3264,6 +3264,8 @@ components:
             bookingCode:
               type: string
               description: Omitido para VIEWER.
+            cost:
+              $ref: '#/components/schemas/Money'
             notes:
               type: string
 
@@ -3298,6 +3300,10 @@ components:
           type: string
         bookingCode:
           type: string
+        cost:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
         notes:
           type: string
 
@@ -3329,6 +3335,10 @@ components:
               type: string
             bookingCode:
               type: string
+            cost:
+              oneOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
             notes:
               type: string
 
@@ -3353,6 +3363,8 @@ components:
               type: string
             bookingUrl:
               type: string
+            cost:
+              $ref: '#/components/schemas/Money'
             notes:
               type: string
 
@@ -3381,6 +3393,10 @@ components:
           type: string
         bookingUrl:
           type: string
+        cost:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
         notes:
           type: string
 
@@ -3406,6 +3422,10 @@ components:
               type: string
             bookingUrl:
               type: string
+            cost:
+              oneOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
             notes:
               type: string
 

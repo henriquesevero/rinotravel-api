@@ -22,7 +22,9 @@ type Hotel struct {
 	ConfirmationCode string
 	ContactPhone     string
 	BookingURL       string
-	Notes            string
+	// Cost is the price of the whole stay; it counts in the trip's expenses.
+	Cost  *kernel.Money
+	Notes string
 }
 
 func HotelBase(h *Hotel) *kernel.Base { return &h.Base }
@@ -43,6 +45,7 @@ type HotelFields struct {
 	ConfirmationCode *string                               `json:"confirmationCode"`
 	ContactPhone     *string                               `json:"contactPhone"`
 	BookingURL       *string                               `json:"bookingUrl"`
+	Cost             kernel.Optional[kernel.MoneyInput]    `json:"cost"`
 	Notes            *string                               `json:"notes"`
 }
 
@@ -116,6 +119,12 @@ func applyHotel(cur Hotel, f HotelFields, access trip.Access, creating bool) (Ho
 	}
 	if f.BookingURL != nil {
 		h.BookingURL = v.HTTPURL("bookingUrl", *f.BookingURL)
+	}
+	if f.Cost.Set {
+		h.Cost = nil
+		if !f.Cost.Clear {
+			h.Cost = v.Money("cost", &f.Cost.Value)
+		}
 	}
 	if f.Notes != nil {
 		h.Notes = v.Text("notes", *f.Notes, false, 2000)

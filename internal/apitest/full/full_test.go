@@ -915,3 +915,29 @@ func TestBudgetHasOneLimitPerCategory(t *testing.T) {
 	}
 	w.post(t, "/budget-limits", w.ana, `{"category":"TOTAL","amount":{"amount":100,"currency":"USD"}}`)
 }
+
+func TestFlightsAndHotelsCarryTheirPrice(t *testing.T) {
+	w := newWorld(t)
+	flight := w.post(t, "/flights", w.ana, `{"flightNumber":"LA8180","departureAirport":"GRU","arrivalAirport":"JFK","departure":{"dateTime":"2027-04-01T22:50","timezone":"America/Sao_Paulo"},"arrival":{"dateTime":"2027-04-02T06:45","timezone":"America/New_York"},"cost":{"amount":420000,"currency":"BRL"}}`)
+	if flight["cost"].(map[string]any)["amount"] != float64(420000) {
+		t.Errorf("flight = %v", flight)
+	}
+	hotel := w.post(t, "/hotels", w.ana, `{"name":"Park Hyatt","checkIn":{"dateTime":"2027-04-02T15:00"},"checkOut":{"dateTime":"2027-04-05T11:00"},"cost":{"amount":180000,"currency":"USD"}}`)
+	id := hotel["id"].(string)
+	if hotel["cost"].(map[string]any)["currency"] != "USD" {
+		t.Errorf("hotel = %v", hotel)
+	}
+	// Everyone in the trip sees the price; it can be changed and taken off.
+	if w.get(t, "/hotels/"+id, w.bia)["cost"] == nil {
+		t.Error("a viewer must see the price")
+	}
+	raised := apitest.Decode(t, w.Do("PATCH", w.base+"/hotels/"+id, w.ana.Token, `{"baseVersion":1,"cost":{"amount":200000,"currency":"USD"}}`))
+	if raised["cost"].(map[string]any)["amount"] != float64(200000) {
+		t.Errorf("raised = %v", raised)
+	}
+	cleared := apitest.Decode(t, w.Do("PATCH", w.base+"/hotels/"+id, w.ana.Token, `{"baseVersion":2,"cost":null}`))
+	if _, still := cleared["cost"]; still {
+		t.Errorf("cost = %v after clearing", cleared["cost"])
+	}
+	w.problem(t, "POST", "/hotels", w.ana, `{"name":"H","checkIn":{"dateTime":"2027-04-02T15:00"},"checkOut":{"dateTime":"2027-04-05T11:00"},"cost":{"amount":-5,"currency":"USD"}}`, 422, "validation_failed")
+}

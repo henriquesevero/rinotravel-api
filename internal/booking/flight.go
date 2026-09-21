@@ -34,7 +34,9 @@ type Flight struct {
 	Baggage          string
 	// BookingCode is sensitive and hidden from viewers.
 	BookingCode string
-	Notes       string
+	// Cost is the price of the ticket; it counts in the trip's expenses.
+	Cost  *kernel.Money
+	Notes string
 }
 
 func FlightBase(f *Flight) *kernel.Base { return &f.Base }
@@ -60,18 +62,19 @@ func (f Flight) Entries() []kernel.TimelineEntry {
 }
 
 type FlightFields struct {
-	Airline          *string                `json:"airline"`
-	FlightNumber     *string                `json:"flightNumber"`
-	DepartureAirport *string                `json:"departureAirport"`
-	ArrivalAirport   *string                `json:"arrivalAirport"`
-	Departure        *kernel.ZonedTimeInput `json:"departure"`
-	Arrival          *kernel.ZonedTimeInput `json:"arrival"`
-	Terminal         *string                `json:"terminal"`
-	Gate             *string                `json:"gate"`
-	Seat             *string                `json:"seat"`
-	Baggage          *string                `json:"baggage"`
-	BookingCode      *string                `json:"bookingCode"`
-	Notes            *string                `json:"notes"`
+	Airline          *string                            `json:"airline"`
+	FlightNumber     *string                            `json:"flightNumber"`
+	DepartureAirport *string                            `json:"departureAirport"`
+	ArrivalAirport   *string                            `json:"arrivalAirport"`
+	Departure        *kernel.ZonedTimeInput             `json:"departure"`
+	Arrival          *kernel.ZonedTimeInput             `json:"arrival"`
+	Terminal         *string                            `json:"terminal"`
+	Gate             *string                            `json:"gate"`
+	Seat             *string                            `json:"seat"`
+	Baggage          *string                            `json:"baggage"`
+	BookingCode      *string                            `json:"bookingCode"`
+	Cost             kernel.Optional[kernel.MoneyInput] `json:"cost"`
+	Notes            *string                            `json:"notes"`
 }
 
 type FlightCreate struct {
@@ -172,6 +175,12 @@ func applyFlight(cur Flight, f FlightFields, creating bool) (Flight, error) {
 	}
 	if f.BookingCode != nil {
 		fl.BookingCode = v.Text("bookingCode", *f.BookingCode, false, 50)
+	}
+	if f.Cost.Set {
+		fl.Cost = nil
+		if !f.Cost.Clear {
+			fl.Cost = v.Money("cost", &f.Cost.Value)
+		}
 	}
 	if f.Notes != nil {
 		fl.Notes = v.Text("notes", *f.Notes, false, 2000)

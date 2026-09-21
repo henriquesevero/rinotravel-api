@@ -73,6 +73,7 @@ type FlightResponse struct {
 	Seat             string               `json:"seat,omitempty"`
 	Baggage          string               `json:"baggage,omitempty"`
 	BookingCode      string               `json:"bookingCode,omitempty"`
+	Cost             *httpres.MoneyDTO    `json:"cost,omitempty"`
 	Notes            string               `json:"notes,omitempty"`
 }
 
@@ -82,7 +83,7 @@ func presentFlight(f booking.Flight, role trip.Role) FlightResponse {
 		DepartureAirport: f.DepartureAirport, ArrivalAirport: f.ArrivalAirport,
 		Departure: *httpres.ZonedOf(&f.Departure), Arrival: *httpres.ZonedOf(&f.Arrival),
 		DurationMinutes: int(f.Duration().Minutes()), Terminal: f.Terminal, Gate: f.Gate, Seat: f.Seat,
-		Baggage: f.Baggage, Notes: f.Notes,
+		Baggage: f.Baggage, Cost: httpres.MoneyOf(f.Cost), Notes: f.Notes,
 	}
 	if canSeeCodes(role) {
 		resp.BookingCode = f.BookingCode
@@ -99,6 +100,7 @@ type HotelResponse struct {
 	ConfirmationCode string               `json:"confirmationCode,omitempty"`
 	ContactPhone     string               `json:"contactPhone,omitempty"`
 	BookingURL       string               `json:"bookingUrl,omitempty"`
+	Cost             *httpres.MoneyDTO    `json:"cost,omitempty"`
 	Notes            string               `json:"notes,omitempty"`
 }
 
@@ -106,7 +108,7 @@ func presentHotel(h booking.Hotel, role trip.Role) HotelResponse {
 	resp := HotelResponse{
 		Meta: httpres.MetaOf(h.Base), Name: h.Name, Location: httpres.LocationOf(h.Location),
 		CheckIn: *httpres.ZonedOf(&h.CheckIn), CheckOut: *httpres.ZonedOf(&h.CheckOut),
-		ContactPhone: h.ContactPhone, BookingURL: h.BookingURL, Notes: h.Notes,
+		ContactPhone: h.ContactPhone, BookingURL: h.BookingURL, Cost: httpres.MoneyOf(h.Cost), Notes: h.Notes,
 	}
 	if canSeeCodes(role) {
 		resp.ConfirmationCode = h.ConfirmationCode

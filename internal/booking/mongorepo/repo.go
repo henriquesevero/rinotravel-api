@@ -10,18 +10,19 @@ import (
 )
 
 type flightDoc struct {
-	Airline          string              `bson:"airline,omitempty"`
-	FlightNumber     string              `bson:"flightNumber"`
-	DepartureAirport string              `bson:"departureAirport"`
-	ArrivalAirport   string              `bson:"arrivalAirport"`
-	Departure        mongostore.ZonedDoc `bson:"departure"`
-	Arrival          mongostore.ZonedDoc `bson:"arrival"`
-	Terminal         string              `bson:"terminal,omitempty"`
-	Gate             string              `bson:"gate,omitempty"`
-	Seat             string              `bson:"seat,omitempty"`
-	Baggage          string              `bson:"baggage,omitempty"`
-	BookingCode      string              `bson:"bookingCode,omitempty"`
-	Notes            string              `bson:"notes,omitempty"`
+	Airline          string               `bson:"airline,omitempty"`
+	FlightNumber     string               `bson:"flightNumber"`
+	DepartureAirport string               `bson:"departureAirport"`
+	ArrivalAirport   string               `bson:"arrivalAirport"`
+	Departure        mongostore.ZonedDoc  `bson:"departure"`
+	Arrival          mongostore.ZonedDoc  `bson:"arrival"`
+	Terminal         string               `bson:"terminal,omitempty"`
+	Gate             string               `bson:"gate,omitempty"`
+	Seat             string               `bson:"seat,omitempty"`
+	Baggage          string               `bson:"baggage,omitempty"`
+	BookingCode      string               `bson:"bookingCode,omitempty"`
+	Cost             *mongostore.MoneyDoc `bson:"cost,omitempty"`
+	Notes            string               `bson:"notes,omitempty"`
 }
 
 var flightCodec = mongostore.Codec[booking.Flight]{
@@ -31,7 +32,7 @@ var flightCodec = mongostore.Codec[booking.Flight]{
 			Airline: f.Airline, FlightNumber: f.FlightNumber, DepartureAirport: f.DepartureAirport,
 			ArrivalAirport: f.ArrivalAirport, Departure: *mongostore.ZonedToDoc(&f.Departure),
 			Arrival: *mongostore.ZonedToDoc(&f.Arrival), Terminal: f.Terminal, Gate: f.Gate, Seat: f.Seat,
-			Baggage: f.Baggage, BookingCode: f.BookingCode, Notes: f.Notes,
+			Baggage: f.Baggage, BookingCode: f.BookingCode, Cost: mongostore.MoneyToDoc(f.Cost), Notes: f.Notes,
 		})
 	},
 	Decode: func(raw bson.Raw, base kernel.Base) (booking.Flight, error) {
@@ -42,7 +43,7 @@ var flightCodec = mongostore.Codec[booking.Flight]{
 		return booking.Flight{
 			Base: base, Airline: d.Airline, FlightNumber: d.FlightNumber, DepartureAirport: d.DepartureAirport,
 			ArrivalAirport: d.ArrivalAirport, Departure: *d.Departure.ToZoned(), Arrival: *d.Arrival.ToZoned(),
-			Terminal: d.Terminal, Gate: d.Gate, Seat: d.Seat, Baggage: d.Baggage, BookingCode: d.BookingCode, Notes: d.Notes,
+			Terminal: d.Terminal, Gate: d.Gate, Seat: d.Seat, Baggage: d.Baggage, BookingCode: d.BookingCode, Cost: d.Cost.ToMoney(), Notes: d.Notes,
 		}, nil
 	},
 }
@@ -59,6 +60,7 @@ type hotelDoc struct {
 	ConfirmationCode string                  `bson:"confirmationCode,omitempty"`
 	ContactPhone     string                  `bson:"contactPhone,omitempty"`
 	BookingURL       string                  `bson:"bookingUrl,omitempty"`
+	Cost             *mongostore.MoneyDoc    `bson:"cost,omitempty"`
 	Notes            string                  `bson:"notes,omitempty"`
 }
 
@@ -68,7 +70,7 @@ var hotelCodec = mongostore.Codec[booking.Hotel]{
 		return mongostore.Marshal(hotelDoc{
 			Name: h.Name, Location: mongostore.LocationToDoc(h.Location),
 			CheckIn: *mongostore.ZonedToDoc(&h.CheckIn), CheckOut: *mongostore.ZonedToDoc(&h.CheckOut),
-			ConfirmationCode: h.ConfirmationCode, ContactPhone: h.ContactPhone, BookingURL: h.BookingURL, Notes: h.Notes,
+			ConfirmationCode: h.ConfirmationCode, ContactPhone: h.ContactPhone, BookingURL: h.BookingURL, Cost: mongostore.MoneyToDoc(h.Cost), Notes: h.Notes,
 		})
 	},
 	Decode: func(raw bson.Raw, base kernel.Base) (booking.Hotel, error) {
@@ -79,7 +81,7 @@ var hotelCodec = mongostore.Codec[booking.Hotel]{
 		return booking.Hotel{
 			Base: base, Name: d.Name, Location: d.Location.ToLocation(), CheckIn: *d.CheckIn.ToZoned(),
 			CheckOut: *d.CheckOut.ToZoned(), ConfirmationCode: d.ConfirmationCode, ContactPhone: d.ContactPhone,
-			BookingURL: d.BookingURL, Notes: d.Notes,
+			BookingURL: d.BookingURL, Cost: d.Cost.ToMoney(), Notes: d.Notes,
 		}, nil
 	},
 }
