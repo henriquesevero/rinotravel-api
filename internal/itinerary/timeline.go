@@ -12,7 +12,7 @@ import (
 	"rinotravel-api/internal/user"
 )
 
-// EntrySource lets other domains (flights, hotels, transfers, reservations) contribute lines to
+// EntrySource lets other domains (flights, hotels, reservations) contribute lines to
 // the timeline without the itinerary knowing about them or duplicating their data.
 type EntrySource interface {
 	Entries(ctx context.Context, tripID string) ([]kernel.TimelineEntry, error)

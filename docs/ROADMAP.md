@@ -30,7 +30,7 @@ Documento único que resume as decisões e as fases planejadas. Consolida os tr�
 | Ação | OWNER | ADMIN | MEMBER | VIEWER |
 | --- | :-: | :-: | :-: | :-: |
 | Ler viagem e conteúdo | sim | sim | sim | sim |
-| Escrever conteúdo (itens, places, voos, hotéis, transfers, documentos) | sim | sim | sim | não |
+| Escrever conteúdo (itens, places, voos, hotéis, gastos, documentos) | sim | sim | sim | não |
 | Editar dados da viagem | sim | sim | não | não |
 | Adicionar, remover ou alterar MEMBER/VIEWER | sim | sim | não | não |
 | Promover a ADMIN, rebaixar ou remover ADMIN | sim | não | não | não |
@@ -50,13 +50,13 @@ Não-membro recebe 404. A regra vive numa política pura do domínio (`Can(role,
 | 5 | **Pronta.** Sync: pull incremental por cursor, push de mutations, idempotência, conflitos, com fontes pluggáveis por entidade |
 | 6 | **Pronta.** Place e Restaurant (CRUD completo, registrados no sync) |
 | 7 | **Pronta.** Flight e Hotel, com duração e fusos derivados. Depois, Ticket (ingresso), ver abaixo |
-| 8 | **Pronta.** Transfer e etapas, com planejamento de rota |
+| 8 | **Removida.** Era Transfer (deslocamento em etapas, com planejamento de rota); saiu para o app ficar como o Wanderlog, que não cadastra deslocamentos, só calcula o tempo entre paradas já no roteiro (o que o `daymap`, fase 10, já fazia e continua fazendo). O pacote `transfer` virou `routing`: só os tipos de porta (`RouteProvider`, `Route`, `Mode`) que o `daymap` ainda usa, sem entidade nem CRUD |
 | 9 | **Pronta.** Documents no MongoDB GridFS (upload e download por link assinado, registrados no sync) |
 | 10 | **Pronta.** Adapters do Google (`PlaceProvider`, `RouteProvider`), com os ports nascendo aqui; opcionais, ligados pela chave, com teto mensal de chamadas contado no MongoDB (`GOOGLE_MONTHLY_LIMIT`) |
 
 Toda entidade nova a partir da fase 4 nasce sync-ready, e "registrar no sync" é critério de aceite da fase dela. Expense, Shopping e Checklist ficam fora até existirem; o sync é pluggable para recebê-los.
 
-Pacotes: `trip`, `user`, `itinerary`, `expense`, `place` (Place e Restaurant), `booking` (Flight, Hotel e Ticket), `transfer`, `document`, `sync`. Cada um segue o mesmo padrão: pacote raiz (entidades e use cases), `httpapi/` e `mongorepo/`, nomes que não colidem com `net/http` nem com o driver `mongo`. Os pacotes se falam pelo `Authorizer` (interface no consumidor), sem ciclos.
+Pacotes: `trip`, `user`, `itinerary`, `expense`, `place` (Place e Restaurant), `booking` (Flight, Hotel e Ticket), `document`, `sync`. Cada um segue o mesmo padrão: pacote raiz (entidades e use cases), `httpapi/` e `mongorepo/`, nomes que não colidem com `net/http` nem com o driver `mongo`. Os pacotes se falam pelo `Authorizer` (interface no consumidor), sem ciclos. `routing` é diferente: não é uma feature, é a porta de roteamento (`RouteProvider`) que o `google` implementa e o `daymap` consome.
 
 ## 4. Regras transversais de domínio
 
@@ -70,16 +70,16 @@ Pacotes: `trip`, `user`, `itinerary`, `expense`, `place` (Place e Restaurant), `
 
 **Localização:** value object `Location` (nome, endereço, coordenadas opcionais). Latitude entre -90 e 90, longitude entre -180 e 180, sempre as duas ou nenhuma.
 
-**Valores derivados, não armazenados:** duração de item com início e fim; total e duração do Transfer (soma dos legs). Os legs ficam embutidos no Transfer, e a ordem é a posição no slice.
+**Valores derivados, não armazenados:** duração de item com início e fim.
 
-**Timeline:** `GetItinerary` monta uma lista ordenada por dia com itens, voos, hotéis, ingressos com horário, transfers e reservas de restaurante, sem duplicar dados. Item manual só tem categorias RESTAURANT, ATTRACTION, SHOPPING, FREE_TIME e OTHER. FLIGHT, HOTEL e TRANSPORTATION saem, porque são entidades próprias. Sobreposição é permitida.
+**Timeline:** `GetItinerary` monta uma lista ordenada por dia com itens, voos, hotéis, ingressos com horário e reservas de restaurante, sem duplicar dados. Item manual só tem categorias RESTAURANT, ATTRACTION, SHOPPING, FREE_TIME e OTHER. FLIGHT e HOTEL saem, porque são entidades próprias. Sobreposição é permitida.
 
 **Segurança de dados**
 - Todo use case confirma que os filhos citados pertencem à `TripID` da rota (evita IDOR).
 - Códigos de reserva (`BookingCode`, `ConfirmationCode`, `ReservationCode`) são ocultados para VIEWER, inclusive no sync.
 - `BookingURL` só aceita `http(s)`. Aeroporto é IATA de 3 letras. Textos têm limite de tamanho.
 
-**Modelagem:** toda entidade tem `Version`, `CreatedAt`, `UpdatedAt`, `DeletedAt` opcional e autor. Enums de Place e Transfer precisam ser definidos na fase 6 e 8.
+**Modelagem:** toda entidade tem `Version`, `CreatedAt`, `UpdatedAt`, `DeletedAt` opcional e autor. Enums de Place precisam ser definidos na fase 6.
 
 ## 5. Protocolo de sincronização (fase 5)
 
@@ -144,7 +144,7 @@ Estratégia inicial, explícita: **checagem otimista por versão**.
 
 **Decisão: os arquivos ficam no MongoDB (GridFS).** O projeto não usa AWS. Backend no Railway, frontend na Vercel e todo o armazenamento no Atlas: um único lugar para backup, acesso e custo. O limite de 25 MB por arquivo cabe folgado no GridFS. Se um dia o volume crescer, o port `Storage` permite trocar por um object storage sem tocar no domínio.
 
-**Modelo.** `Document` com `Version`, `Checksum` (SHA-256 hex), `Size`, `MimeType`, `FileName`, `Type`, `Status` (`PENDING`, `READY`), `OwnerID`, `Visibility` (`TRIP` ou `PRIVATE`) e um vínculo opcional genérico `{type, id}` (viagem, item, voo, hotel, restaurante, lugar ou transfer).
+**Modelo.** `Document` com `Version`, `Checksum` (SHA-256 hex), `Size`, `MimeType`, `FileName`, `Type`, `Status` (`PENDING`, `READY`), `OwnerID`, `Visibility` (`TRIP` ou `PRIVATE`) e um vínculo opcional genérico `{type, id}` (viagem, item, voo, hotel, restaurante ou lugar).
 
 `Version` é a versão de sincronização e sobe a cada mudança de metadata. O `Checksum` identifica o conteúdo. Renomear muda a versão, mas não o checksum, e por isso o cliente sabe que não precisa baixar de novo.
 
@@ -195,7 +195,7 @@ O pacote `booking` não conhece o `document`: recebe a porta `DocumentReader` (`
 
 Dois recursos por viagem, ambos com sync:
 
-- **`Expense`**: uma linha de dinheiro (refeição, lembrança, roupa, eletrônico...). `PLANNED` é algo que se pretende comprar e conta pelo `estimate`; `PAID` já foi gasto e conta pelo `actual` (o `estimate` pode ficar para comparar). Regras: precisa de `estimate` ou de `actual`; `PAID` exige `actual`; `PLANNED` não pode ter `actual`; as duas quantias na mesma moeda. Tem `category` (FOOD, LODGING, TRANSPORT, ACTIVITIES, SOUVENIRS, CLOTHES, ELECTRONICS, OTHER), `date` civil opcional e um `link {type,id}` opcional para um lugar, restaurante, item do roteiro, ingresso, hospedagem, voo ou transfer. Como nos documentos, o vínculo só valida o tipo e o formato do id: o cliente trata a referência solta (o lugar foi apagado) como "local removido".
+- **`Expense`**: uma linha de dinheiro (refeição, lembrança, roupa, eletrônico...). `PLANNED` é algo que se pretende comprar e conta pelo `estimate`; `PAID` já foi gasto e conta pelo `actual` (o `estimate` pode ficar para comparar). Regras: precisa de `estimate` ou de `actual`; `PAID` exige `actual`; `PLANNED` não pode ter `actual`; as duas quantias na mesma moeda. Tem `category` (FOOD, LODGING, TRANSPORT, ACTIVITIES, SOUVENIRS, CLOTHES, ELECTRONICS, OTHER), `date` civil opcional e um `link {type,id}` opcional para um lugar, restaurante, item do roteiro, ingresso, hospedagem ou voo. Como nos documentos, o vínculo só valida o tipo e o formato do id: o cliente trata a referência solta (o lugar foi apagado) como "local removido".
 - **`BudgetLimit`**: o máximo da viagem (`TOTAL`) ou de uma categoria. Uma por categoria em cada viagem (índice único entre as vivas e `409 budget_exists`).
 
 **Os totais são do cliente.** O servidor guarda linhas e limites e não soma nada, porque a soma depende da moeda da viagem e do que o cliente mostra: gasto (`PAID` no `actual`), a gastar (`PLANNED` no `estimate`), previsto (a soma dos dois) e restante (limite menos previsto). Uma linha em moeda diferente da viagem fica fora da soma e é contada à parte, nunca misturada. Sem conversão de câmbio de propósito: converter exige uma cotação, e uma cotação errada esconde o estouro do orçamento.

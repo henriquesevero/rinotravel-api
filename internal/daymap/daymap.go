@@ -15,7 +15,7 @@ import (
 	"rinotravel-api/internal/kernel"
 	"rinotravel-api/internal/quota"
 	"rinotravel-api/internal/resource"
-	"rinotravel-api/internal/transfer"
+	"rinotravel-api/internal/routing"
 	"rinotravel-api/internal/trip"
 	"rinotravel-api/internal/user"
 )
@@ -46,12 +46,12 @@ func ParseMode(s string) (Mode, error) {
 	return "", fmt.Errorf("must be one of TRANSIT, WALKING, DRIVING")
 }
 
-func (m Mode) transferMode() transfer.Mode {
+func (m Mode) routingMode() routing.Mode {
 	switch m {
 	case Walking:
-		return transfer.ModeWalking
+		return routing.ModeWalking
 	case Driving:
-		return transfer.ModeCar
+		return routing.ModeCar
 	default:
 		return "" // the provider's default: public transit with walking
 	}
@@ -117,13 +117,13 @@ type ImageRenderer interface {
 }
 
 type Service struct {
-	routes   transfer.RouteProvider
+	routes   routing.RouteProvider
 	renderer ImageRenderer
 	authz    resource.Authorizer
 	logger   *slog.Logger
 }
 
-func NewService(routes transfer.RouteProvider, renderer ImageRenderer, authz resource.Authorizer, logger *slog.Logger) *Service {
+func NewService(routes routing.RouteProvider, renderer ImageRenderer, authz resource.Authorizer, logger *slog.Logger) *Service {
 	return &Service{routes: routes, renderer: renderer, authz: authz, logger: logger}
 }
 
@@ -205,7 +205,7 @@ func (s *Service) legs(ctx context.Context, stops []Marker, mode Mode, language 
 
 func (s *Service) leg(ctx context.Context, from int, origin, destination kernel.Location, mode Mode, language string) Leg {
 	leg := Leg{From: from, To: from + 1}
-	routes, err := s.routes.Compute(ctx, transfer.RouteRequest{Origin: origin, Destination: destination, Mode: mode.transferMode(), Language: language})
+	routes, err := s.routes.Compute(ctx, routing.RouteRequest{Origin: origin, Destination: destination, Mode: mode.routingMode(), Language: language})
 	switch {
 	case errors.Is(err, quota.ErrExhausted):
 		s.logger.WarnContext(ctx, "day map trip skipped: monthly limit reached")

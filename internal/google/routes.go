@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"rinotravel-api/internal/kernel"
-	"rinotravel-api/internal/transfer"
+	"rinotravel-api/internal/routing"
 )
 
 const routeFields = "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline," +
@@ -82,7 +82,7 @@ type routesResponse struct {
 	} `json:"routes"`
 }
 
-func (r *Routes) Compute(ctx context.Context, req transfer.RouteRequest) ([]transfer.Route, error) {
+func (r *Routes) Compute(ctx context.Context, req routing.RouteRequest) ([]routing.Route, error) {
 	body := map[string]any{
 		"origin":       waypoint(req.Origin),
 		"destination":  waypoint(req.Destination),
@@ -97,9 +97,9 @@ func (r *Routes) Compute(ctx context.Context, req transfer.RouteRequest) ([]tran
 		return nil, err
 	}
 
-	routes := make([]transfer.Route, 0, len(out.Routes))
+	routes := make([]routing.Route, 0, len(out.Routes))
 	for _, raw := range out.Routes {
-		route := transfer.Route{Duration: parseDuration(raw.Duration), DistanceMeters: raw.DistanceMeters, Polyline: raw.Polyline.Encoded}
+		route := routing.Route{Duration: parseDuration(raw.Duration), DistanceMeters: raw.DistanceMeters, Polyline: raw.Polyline.Encoded}
 		for _, leg := range raw.Legs {
 			route.Legs = append(route.Legs, mergeSteps(leg.Steps)...)
 		}
@@ -135,11 +135,11 @@ func waypoint(l kernel.Location) map[string]any {
 	}
 }
 
-func travelMode(m transfer.Mode) string {
+func travelMode(m routing.Mode) string {
 	switch m {
-	case transfer.ModeWalking:
+	case routing.ModeWalking:
 		return "WALK"
-	case transfer.ModeCar, transfer.ModeTaxi, transfer.ModeRideshare:
+	case routing.ModeCar, routing.ModeTaxi, routing.ModeRideshare:
 		return "DRIVE"
 	default:
 		return "TRANSIT"
@@ -169,28 +169,28 @@ func location(name string, p latLng) kernel.Location {
 	return kernel.Location{Name: name, Coordinates: &kernel.Coordinates{Lat: p.LatLng.Latitude, Lng: p.LatLng.Longitude}}
 }
 
-func vehicleMode(vehicle string) transfer.Mode {
+func vehicleMode(vehicle string) routing.Mode {
 	switch vehicle {
 	case "SUBWAY", "METRO_RAIL":
-		return transfer.ModeSubway
+		return routing.ModeSubway
 	case "BUS", "INTERCITY_BUS", "TROLLEYBUS", "SHARE_TAXI":
-		return transfer.ModeBus
+		return routing.ModeBus
 	case "RAIL", "HEAVY_RAIL", "COMMUTER_TRAIN", "HIGH_SPEED_TRAIN", "LONG_DISTANCE_TRAIN", "MONORAIL", "TRAM", "LIGHT_RAIL":
-		return transfer.ModeTrain
+		return routing.ModeTrain
 	}
-	return transfer.ModeOther
+	return routing.ModeOther
 }
 
 // mergeSteps turns Google's fine-grained steps into legs a traveler cares about: consecutive walking
 // (or driving) steps collapse into one leg, and every transit ride is its own leg.
-func mergeSteps(steps []stepDTO) []transfer.RouteLeg {
-	var legs []transfer.RouteLeg
+func mergeSteps(steps []stepDTO) []routing.RouteLeg {
+	var legs []routing.RouteLeg
 	for _, step := range steps {
 		duration := parseDuration(step.StaticDuration)
 		if step.Transit != nil {
 			t := step.Transit
 			stops := t.StopCount
-			legs = append(legs, transfer.RouteLeg{
+			legs = append(legs, routing.RouteLeg{
 				Mode:        vehicleMode(t.Line.Vehicle.Type),
 				Origin:      location(t.StopDetails.DepartureStop.Name, step.StartLocation),
 				Destination: location(t.StopDetails.ArrivalStop.Name, step.EndLocation),
@@ -204,9 +204,9 @@ func mergeSteps(steps []stepDTO) []transfer.RouteLeg {
 			continue
 		}
 
-		mode := transfer.ModeWalking
+		mode := routing.ModeWalking
 		if step.TravelMode == "DRIVE" {
-			mode = transfer.ModeCar
+			mode = routing.ModeCar
 		}
 		if n := len(legs); n > 0 && legs[n-1].Mode == mode && legs[n-1].Departure == nil {
 			legs[n-1].Duration += duration
@@ -214,7 +214,7 @@ func mergeSteps(steps []stepDTO) []transfer.RouteLeg {
 			legs[n-1].Instructions = joinInstructions(legs[n-1].Instructions, step.NavigationInstruct.Instructions)
 			continue
 		}
-		legs = append(legs, transfer.RouteLeg{
+		legs = append(legs, routing.RouteLeg{
 			Mode: mode, Origin: location("", step.StartLocation), Destination: location("", step.EndLocation),
 			Duration: duration, Instructions: step.NavigationInstruct.Instructions,
 		})

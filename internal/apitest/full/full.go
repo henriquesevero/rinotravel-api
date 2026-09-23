@@ -28,12 +28,11 @@ import (
 	"rinotravel-api/internal/platform/httpx"
 	"rinotravel-api/internal/quota/quotatest"
 	"rinotravel-api/internal/resource/resourcetest"
+	"rinotravel-api/internal/routing"
 	"rinotravel-api/internal/server"
 	"rinotravel-api/internal/syncengine"
 	syncapi "rinotravel-api/internal/syncengine/httpapi"
 	"rinotravel-api/internal/syncengine/synctest"
-	"rinotravel-api/internal/transfer"
-	transferapi "rinotravel-api/internal/transfer/httpapi"
 	tripapi "rinotravel-api/internal/trip/httpapi"
 )
 
@@ -67,30 +66,24 @@ func (f *FakePlaces) Details(context.Context, string, string) (place.Candidate, 
 }
 
 type FakeRoutes struct {
-	Routes []transfer.Route
+	Routes []routing.Route
 	Err    error
 	Calls  atomic.Int32
 }
 
 func (f *FakeRoutes) Name() string { return "fake" }
 
-func (f *FakeRoutes) Compute(context.Context, transfer.RouteRequest) ([]transfer.Route, error) {
+func (f *FakeRoutes) Compute(context.Context, routing.RouteRequest) ([]routing.Route, error) {
 	f.Calls.Add(1)
 	return f.Routes, f.Err
 }
 
 // FakeMaps stands in for the static map service and remembers what it was asked to draw.
 type FakeMaps struct {
-	Image transfer.MapImage
+	Image kernel.MapImage
 	Err   error
-	Specs []transfer.MapSpec
 	Pins  []place.PinSpec
 	Days  []daymap.DaySpec
-}
-
-func (f *FakeMaps) Render(_ context.Context, spec transfer.MapSpec) (transfer.MapImage, error) {
-	f.Specs = append(f.Specs, spec)
-	return f.Image, f.Err
 }
 
 func (f *FakeMaps) RenderPin(_ context.Context, spec place.PinSpec) (kernel.MapImage, error) {
@@ -119,7 +112,6 @@ func New(t *testing.T) *Stack {
 		expenses := resourcetest.New(expense.Base)
 		limits := resourcetest.New(expense.LimitBase)
 		payments := resourcetest.New(expense.PaymentBase)
-		transfers := resourcetest.New(transfer.Base)
 		documents := resourcetest.New(document.Base)
 
 		placesUC := place.NewPlaces(places, authz)
@@ -134,17 +126,11 @@ func New(t *testing.T) *Stack {
 		bookingH := bookingapi.New(bookingapi.Deps{Logger: e.Logger, Guard: e.Guard, Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz), Tickets: booking.NewTickets(tickets, authz, documentService)})
 		expenseH := expenseapi.New(expenseapi.Deps{Logger: e.Logger, Guard: e.Guard, Expenses: expense.NewExpenses(expenses, authz), Limits: expense.NewLimits(limits, authz), Payments: expense.NewPayments(payments, authz)})
 		routes := google.NewMeteredRoutes(s.Routes, s.Quota, GoogleLimit, e.Logger)
-		transferH := transferapi.New(transferapi.Deps{
-			Logger: e.Logger, Guard: e.Guard, Transfers: transfer.NewTransfers(transfers, authz),
-			Planner:    transfer.NewPlanner(routes, authz, e.Logger),
-			Maps:       transfer.NewMaps(routes, google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), authz, e.Logger),
-			MapLimiter: httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)),
-		})
 		itineraryH := itineraryapi.New(itineraryapi.Deps{
 			Logger: e.Logger, Guard: e.Guard, Days: itinerary.NewDays(days, items, authz), Items: itinerary.NewItems(items, days, authz),
 			Places: placesUC,
 			Timeline: itinerary.NewTimeline(days, items, authz,
-				place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels, tickets), transfer.NewTimelineSource(transfers)),
+				place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels, tickets)),
 		})
 
 		var sources []syncengine.Source
@@ -152,7 +138,6 @@ func New(t *testing.T) *Stack {
 		sources = append(sources, placeH.SyncSources()...)
 		sources = append(sources, bookingH.SyncSources()...)
 		sources = append(sources, expenseH.SyncSources()...)
-		sources = append(sources, transferH.SyncSources()...)
 		sources = append(sources, documentH.SyncSource())
 		if tripsHandler, ok := tripHandler(e); ok {
 			sources = append(sources, tripsHandler.SyncSource(e.Trips))
@@ -163,7 +148,7 @@ func New(t *testing.T) *Stack {
 			daymap.NewService(routes, google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), e.Authz, e.Logger),
 			httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)))
 
-		return []server.Module{placeH, bookingH, expenseH, transferH, documentH, itineraryH, dayH, syncapi.New(e.Logger, e.Guard, engine)}
+		return []server.Module{placeH, bookingH, expenseH, documentH, itineraryH, dayH, syncapi.New(e.Logger, e.Guard, engine)}
 	})
 	return s
 }

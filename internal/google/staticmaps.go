@@ -12,7 +12,6 @@ import (
 	"rinotravel-api/internal/daymap"
 	"rinotravel-api/internal/kernel"
 	"rinotravel-api/internal/place"
-	"rinotravel-api/internal/transfer"
 )
 
 const (
@@ -54,23 +53,6 @@ func point(l kernel.Location) string {
 	default:
 		return l.Name
 	}
-}
-
-func staticMapQuery(spec transfer.MapSpec, withPath bool) url.Values {
-	q := url.Values{}
-	q.Set("size", staticMapSize)
-	q.Set("scale", "2")
-	q.Set("maptype", "roadmap")
-	q.Set("format", "png")
-	if spec.Language != "" {
-		q.Set("language", spec.Language)
-	}
-	q.Add("markers", "color:"+brandBlueMarker+"|label:A|"+point(spec.Origin))
-	q.Add("markers", "color:"+brandBlueMarker+"|label:B|"+point(spec.Destination))
-	if withPath && spec.Polyline != "" {
-		q.Set("path", "color:"+brandBlueMarker+"FF|weight:5|enc:"+spec.Polyline)
-	}
-	return q
 }
 
 // dayTolerances are how coarse the route lines may get, in degrees (0.0001 is about 11 metres),
@@ -164,24 +146,6 @@ func staticPinURL(base, key string, spec place.PinSpec) string {
 	q.Add("markers", "color:"+brandBlueMarker+"|"+point(spec.Location))
 	q.Set("key", key)
 	return base + "/maps/api/staticmap?" + q.Encode()
-}
-
-// staticMapURL is separate so the size rule and the encoding can be tested without a network.
-func staticMapURL(base, key string, spec transfer.MapSpec) string {
-	build := func(withPath bool) string {
-		q := staticMapQuery(spec, withPath)
-		q.Set("key", key)
-		return base + "/maps/api/staticmap?" + q.Encode()
-	}
-	full := build(true)
-	if len(full) <= maxStaticURL {
-		return full
-	}
-	return build(false)
-}
-
-func (s *StaticMaps) Render(ctx context.Context, spec transfer.MapSpec) (transfer.MapImage, error) {
-	return s.fetch(ctx, staticMapURL(s.base, s.key, spec))
 }
 
 // RenderPin draws one marker on a street-level map.

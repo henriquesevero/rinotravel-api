@@ -55,7 +55,7 @@ func ParseStatus(s string) (Status, error) {
 
 // linkTypes are the records of the trip an expense can be tied to.
 var linkTypes = map[string]bool{
-	"place": true, "restaurant": true, "itinerary_item": true, "ticket": true, "hotel": true, "flight": true, "transfer": true,
+	"place": true, "restaurant": true, "itinerary_item": true, "ticket": true, "hotel": true, "flight": true,
 }
 
 type Expense struct {
@@ -177,7 +177,7 @@ func apply(cur Expense, f Fields, creating bool) (Expense, error) {
 	if f.Link.Set {
 		e.LinkType, e.LinkID = "", ""
 		if !f.Link.Clear {
-			v.Check(linkTypes[f.Link.Value.Type], "link.type", "must be one of place, restaurant, itinerary_item, ticket, hotel, flight, transfer")
+			v.Check(linkTypes[f.Link.Value.Type], "link.type", "must be one of place, restaurant, itinerary_item, ticket, hotel, flight")
 			v.Check(ids.IsValid(f.Link.Value.ID), "link.id", "must be a lowercase UUID")
 			e.LinkType, e.LinkID = f.Link.Value.Type, f.Link.Value.ID
 		}

@@ -4,7 +4,7 @@ info:
   title: RinoTravel API
   version: 1.0.0
   description: |
-    API do RinoTravel. Fases implementadas: fundação, autenticação, viagens com membros, roteiro, lugares e restaurantes, voos e hotéis, transfers, documentos, sync offline-first e adaptadores Google.
+    API do RinoTravel. Fases implementadas: fundação, autenticação, viagens com membros, roteiro, lugares e restaurantes, voos e hotéis, gastos e orçamento, documentos, sync offline-first e adaptadores Google.
 
     Erros usam `application/problem+json` (RFC 9457). O campo `code` é estável e pensado para o cliente traduzir a mensagem.
     Quem não é membro de uma viagem recebe sempre `404 trip_not_found`, idêntico ao de uma viagem inexistente.
@@ -30,8 +30,6 @@ tags:
     description: Voos e hospedagens.
   - name: Expenses
     description: Gastos da viagem (planejados e pagos), ligados a lugares, e o orçamento por categoria.
-  - name: Transfers
-    description: Deslocamentos em etapas e o planejamento de rotas.
   - name: Documents
     description: Arquivos da viagem, armazenados no MongoDB (GridFS) e entregues por link assinado.
   - name: Sync
@@ -688,7 +686,7 @@ paths:
     get:
       tags: [Itinerary]
       operationId: getItinerary
-      summary: Linha do tempo unificada por dia (itens, voos, hotéis, transfers e reservas), com horários locais
+      summary: Linha do tempo unificada por dia (itens, voos, hotéis e reservas), com horários locais
       responses:
         '200':
           description: Dias em ordem cronológica.
@@ -1774,210 +1772,6 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
-  /api/v1/trips/{tripId}/transfers:
-    parameters:
-      - $ref: '#/components/parameters/TripId'
-    get:
-      tags: [Transfers]
-      operationId: listTransfers
-      summary: Lista os deslocamentos
-      responses:
-        '200':
-          description: Lista de os deslocamentos.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Transfer'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    post:
-      tags: [Transfers]
-      operationId: createTransfer
-      summary: Cria os deslocamento (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TransferCreate'
-      responses:
-        '201':
-          description: Criado.
-          headers:
-            Location:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Transfer'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
-
-  /api/v1/trips/{tripId}/transfers/{id}:
-    parameters:
-      - $ref: '#/components/parameters/TripId'
-      - $ref: '#/components/parameters/ResourceId'
-    get:
-      tags: [Transfers]
-      operationId: getTransfer
-      summary: Detalhes
-      responses:
-        '200':
-          description: O registro.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Transfer'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    patch:
-      tags: [Transfers]
-      operationId: updateTransfer
-      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TransferPatch'
-      responses:
-        '200':
-          description: Atualizado.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Transfer'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
-    delete:
-      tags: [Transfers]
-      operationId: deleteTransfer
-      summary: Remove (soft delete; deixa um tombstone para o sync)
-      responses:
-        '204':
-          description: Removido.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-
-  /api/v1/trips/{tripId}/transfers/plan:
-    parameters:
-      - $ref: '#/components/parameters/TripId'
-    post:
-      tags: [Transfers]
-      operationId: planTransfer
-      summary: Pede rotas ao Google Routes. Cada opção tem o formato de um create, para o cliente escolher e enviar sem alterar
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlanTransferRequest'
-      responses:
-        '200':
-          description: Opções de rota.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [routes]
-                properties:
-                  routes:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/RouteOption'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-
-  /api/v1/trips/{tripId}/transfers/map:
-    parameters:
-      - $ref: '#/components/parameters/TripId'
-    post:
-      tags: [Transfers]
-      operationId: renderTransferMap
-      summary: Desenha o mapa da rota A→B, ainda sem o deslocamento salvo. Só existe quando o servidor tem GOOGLE_MAPS_API_KEY
-      description: |
-        Devolve uma imagem PNG com os dois pontos e, quando o Google acha a rota, o traçado. A imagem é feita na hora e
-        nada dela é guardado no servidor. Qualquer membro da viagem (inclusive LEITOR) pode pedir.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MapRequest'
-      responses:
-        '200':
-          description: A imagem do mapa (cache privado de 5 minutos).
-          content:
-            image/png:
-              schema:
-                type: string
-                format: binary
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-
   /api/v1/trips/{tripId}/maps/location:
     parameters:
       - $ref: '#/components/parameters/TripId'
@@ -2885,11 +2679,6 @@ components:
       description: Estado de um restaurante.
       enum: [WISHLIST, PLANNED, RESERVED, VISITED]
 
-    TransferMode:
-      type: string
-      description: Meio de transporte.
-      enum: [WALKING, SUBWAY, TRAIN, BUS, TAXI, RIDESHARE, CAR, OTHER]
-
     DocumentType:
       type: string
       description: Tipo de documento.
@@ -3108,7 +2897,7 @@ components:
         kind:
           type: string
           description: Origem da entrada.
-          enum: [itinerary_item, flight_departure, flight_arrival, hotel_check_in, hotel_check_out, transfer, restaurant_reservation, ticket]
+          enum: [itinerary_item, flight_departure, flight_arrival, hotel_check_in, hotel_check_out, restaurant_reservation, ticket]
         id:
           type: string
           description: Id do registro de origem.
@@ -3140,7 +2929,7 @@ components:
                 oneOf:
                   - $ref: '#/components/schemas/ItineraryDay'
                   - type: 'null'
-                description: Nulo quando a data só tem entradas de voos, hotéis ou transfers.
+                description: Nulo quando a data só tem entradas de voos ou hotéis.
               entries:
                 type: array
                 items:
@@ -3574,7 +3363,7 @@ components:
       properties:
         type:
           type: string
-          enum: [place, restaurant, itinerary_item, ticket, hotel, flight, transfer]
+          enum: [place, restaurant, itinerary_item, ticket, hotel, flight]
         id:
           type: string
           format: uuid
@@ -3881,147 +3670,6 @@ components:
             notes:
               type: string
 
-    TransferLegInput:
-      type: object
-      additionalProperties: false
-      required: [mode]
-      properties:
-        mode:
-          $ref: '#/components/schemas/TransferMode'
-        origin:
-          $ref: '#/components/schemas/Location'
-        destination:
-          $ref: '#/components/schemas/Location'
-        departure:
-          $ref: '#/components/schemas/ZonedTime'
-        arrival:
-          $ref: '#/components/schemas/ZonedTime'
-        estimatedDurationMinutes:
-          type: integer
-        line:
-          type: string
-        direction:
-          type: string
-        stops:
-          type: integer
-        instructions:
-          type: string
-        cost:
-          $ref: '#/components/schemas/Money'
-
-    TransferLeg:
-      allOf:
-        - $ref: '#/components/schemas/TransferLegInput'
-        - type: object
-          properties:
-            durationMinutes:
-              type: integer
-              description: Derivado dos horários quando ambos existem; senão, a estimativa.
-
-    Transfer:
-      allOf:
-        - $ref: '#/components/schemas/ResourceMeta'
-        - type: object
-          required: [status, legs]
-          properties:
-            origin:
-              $ref: '#/components/schemas/Location'
-            destination:
-              $ref: '#/components/schemas/Location'
-            status:
-              $ref: '#/components/schemas/PlanStatus'
-            routeProvider:
-              type: string
-            externalRouteId:
-              type: string
-            notes:
-              type: string
-            legs:
-              type: array
-              items:
-                $ref: '#/components/schemas/TransferLeg'
-            departure:
-              $ref: '#/components/schemas/ZonedTime'
-            arrival:
-              $ref: '#/components/schemas/ZonedTime'
-            durationMinutes:
-              type: integer
-            totalCost:
-              $ref: '#/components/schemas/Money'
-
-    TransferCreate:
-      type: object
-      additionalProperties: false
-      required: [origin, destination, legs]
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
-        origin:
-          oneOf:
-            - $ref: '#/components/schemas/Location'
-            - type: 'null'
-        destination:
-          oneOf:
-            - $ref: '#/components/schemas/Location'
-            - type: 'null'
-        status:
-          $ref: '#/components/schemas/PlanStatus'
-        routeProvider:
-          type: string
-        externalRouteId:
-          type: string
-        notes:
-          type: string
-        legs:
-          type: array
-          items:
-            $ref: '#/components/schemas/TransferLegInput'
-
-    TransferPatch:
-      allOf:
-        - $ref: '#/components/schemas/BaseVersion'
-        - type: object
-          additionalProperties: false
-          properties:
-            origin:
-              oneOf:
-                - $ref: '#/components/schemas/Location'
-                - type: 'null'
-            destination:
-              oneOf:
-                - $ref: '#/components/schemas/Location'
-                - type: 'null'
-            status:
-              $ref: '#/components/schemas/PlanStatus'
-            routeProvider:
-              type: string
-            externalRouteId:
-              type: string
-            notes:
-              type: string
-            legs:
-              type: array
-              items:
-                $ref: '#/components/schemas/TransferLegInput'
-
-    PlanTransferRequest:
-      type: object
-      additionalProperties: false
-      required: [origin, destination]
-      properties:
-        origin:
-          $ref: '#/components/schemas/Location'
-        destination:
-          $ref: '#/components/schemas/Location'
-        mode:
-          $ref: '#/components/schemas/TransferMode'
-        departureAt:
-          $ref: '#/components/schemas/ZonedTime'
-        language:
-          type: string
-
     LocationMapRequest:
       type: object
       additionalProperties: false
@@ -4103,46 +3751,6 @@ components:
         image:
           type: string
           description: Data URI PNG, presente só se pedida e desenhada.
-
-    MapRequest:
-      type: object
-      additionalProperties: false
-      required: [origin, destination]
-      properties:
-        origin:
-          $ref: '#/components/schemas/Location'
-        destination:
-          $ref: '#/components/schemas/Location'
-        mode:
-          $ref: '#/components/schemas/TransferMode'
-        language:
-          type: string
-
-    RouteOption:
-      type: object
-      required: [durationMinutes, distanceMeters, transfer]
-      properties:
-        durationMinutes:
-          type: integer
-        distanceMeters:
-          type: integer
-        transfer:
-          type: object
-          description: Corpo pronto para `POST /transfers` (sem `id`).
-          required: [routeProvider, legs]
-          properties:
-            origin:
-              $ref: '#/components/schemas/Location'
-            destination:
-              $ref: '#/components/schemas/Location'
-            routeProvider:
-              type: string
-            externalRouteId:
-              type: string
-            legs:
-              type: array
-              items:
-                $ref: '#/components/schemas/TransferLegInput'
 
     DocumentLink:
       type: object
@@ -4249,7 +3857,7 @@ components:
 
     SyncEntity:
       type: string
-      enum: [trip, itinerary_day, itinerary_item, place, restaurant, flight, hotel, transfer, document]
+      enum: [trip, itinerary_day, itinerary_item, place, restaurant, flight, hotel, document]
 
     SyncChange:
       type: object

@@ -12,7 +12,7 @@ import (
 	"rinotravel-api/internal/place"
 	"rinotravel-api/internal/quota"
 	"rinotravel-api/internal/quota/quotatest"
-	"rinotravel-api/internal/transfer"
+	"rinotravel-api/internal/routing"
 )
 
 type countingPlaces struct{ searches, details int }
@@ -30,9 +30,9 @@ func (c *countingPlaces) Details(context.Context, string, string) (place.Candida
 type countingRoutes struct{ calls int }
 
 func (c *countingRoutes) Name() string { return "fake" }
-func (c *countingRoutes) Compute(context.Context, transfer.RouteRequest) ([]transfer.Route, error) {
+func (c *countingRoutes) Compute(context.Context, routing.RouteRequest) ([]routing.Route, error) {
 	c.calls++
-	return []transfer.Route{{ExternalID: "r1"}}, nil
+	return []routing.Route{{ExternalID: "r1"}}, nil
 }
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -77,10 +77,10 @@ func TestMeteredRoutes_CountsSeparatelyFromPlaces(t *testing.T) {
 	if _, err := places.Search(context.Background(), "tokyo", nil, "en"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := routes.Compute(context.Background(), transfer.RouteRequest{}); err != nil {
+	if _, err := routes.Compute(context.Background(), routing.RouteRequest{}); err != nil {
 		t.Errorf("routes were blocked by the places allowance: %v", err)
 	}
-	if _, err := routes.Compute(context.Background(), transfer.RouteRequest{}); !errors.Is(err, quota.ErrExhausted) {
+	if _, err := routes.Compute(context.Background(), routing.RouteRequest{}); !errors.Is(err, quota.ErrExhausted) {
 		t.Errorf("second route err = %v, want ErrExhausted", err)
 	}
 	if routes.Name() != "fake" {

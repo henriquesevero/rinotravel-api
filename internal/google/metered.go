@@ -10,7 +10,7 @@ import (
 	"rinotravel-api/internal/kernel"
 	"rinotravel-api/internal/place"
 	"rinotravel-api/internal/quota"
-	"rinotravel-api/internal/transfer"
+	"rinotravel-api/internal/routing"
 )
 
 // Buckets are separate because Google's free allowance is per API, not shared.
@@ -77,38 +77,33 @@ func (p *MeteredPlaces) Details(ctx context.Context, providerID, language string
 
 // MeteredRoutes counts every call of a route provider against a monthly limit.
 type MeteredRoutes struct {
-	inner transfer.RouteProvider
+	inner routing.RouteProvider
 	meter meter
 }
 
-func NewMeteredRoutes(inner transfer.RouteProvider, counter quota.Counter, limit int, logger *slog.Logger) *MeteredRoutes {
+func NewMeteredRoutes(inner routing.RouteProvider, counter quota.Counter, limit int, logger *slog.Logger) *MeteredRoutes {
 	return &MeteredRoutes{inner: inner, meter: meter{counter: counter, bucket: BucketRoutes, limit: limit, logger: logger}}
 }
 
 func (r *MeteredRoutes) Name() string { return r.inner.Name() }
 
-func (r *MeteredRoutes) Compute(ctx context.Context, req transfer.RouteRequest) ([]transfer.Route, error) {
+func (r *MeteredRoutes) Compute(ctx context.Context, req routing.RouteRequest) ([]routing.Route, error) {
 	if err := r.meter.take(ctx); err != nil {
 		return nil, err
 	}
 	return r.inner.Compute(ctx, req)
 }
 
-// MeteredMaps counts every map picture against a monthly limit.
+// MeteredMaps counts every map picture against a monthly limit. Its inner renderer is untyped
+// because it only ever plays two roles (a single pin, a whole day) and is asserted to whichever one
+// a call needs; nothing in the app still draws a two-point route on its own.
 type MeteredMaps struct {
-	inner transfer.MapRenderer
+	inner any
 	meter meter
 }
 
-func NewMeteredMaps(inner transfer.MapRenderer, counter quota.Counter, limit int, logger *slog.Logger) *MeteredMaps {
+func NewMeteredMaps(inner any, counter quota.Counter, limit int, logger *slog.Logger) *MeteredMaps {
 	return &MeteredMaps{inner: inner, meter: meter{counter: counter, bucket: BucketMaps, limit: limit, logger: logger}}
-}
-
-func (m *MeteredMaps) Render(ctx context.Context, spec transfer.MapSpec) (transfer.MapImage, error) {
-	if err := m.meter.take(ctx); err != nil {
-		return transfer.MapImage{}, err
-	}
-	return m.inner.Render(ctx, spec)
 }
 
 func (m *MeteredMaps) RenderPin(ctx context.Context, spec place.PinSpec) (kernel.MapImage, error) {

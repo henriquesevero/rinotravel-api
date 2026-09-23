@@ -1,7 +1,6 @@
 package full_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,7 +12,7 @@ import (
 	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/kernel"
 	"rinotravel-api/internal/place"
-	"rinotravel-api/internal/transfer"
+	"rinotravel-api/internal/routing"
 )
 
 const checksum = "a3f5c0d1e2b4968778695a4b3c2d1e0f9a8b7c6d5e4f30211203f4e5d6c7b8a9"
@@ -139,33 +138,6 @@ func TestFlightsAndHotels(t *testing.T) {
 	}
 	if fmt.Sprint(dates) != "[2027-04-01 2027-04-02 2027-04-05]" {
 		t.Errorf("timeline dates = %v; the flight departs Apr 1 (Sao Paulo), lands Apr 2 (Lisbon), hotel checks out Apr 5", dates)
-	}
-}
-
-func TestTransfersDeriveTheirTotalsFromLegs(t *testing.T) {
-	w := newWorld(t)
-	legs := `[{"mode":"WALKING","origin":{"name":"JFK"},"destination":{"name":"AirTrain"},"estimatedDurationMinutes":5},
-	  {"mode":"TRAIN","origin":{"name":"AirTrain"},"destination":{"name":"Jamaica"},"departure":{"dateTime":"2027-04-02T10:00"},"arrival":{"dateTime":"2027-04-02T10:10"},"cost":{"amount":300,"currency":"USD"},"line":"AirTrain"},
-	  {"mode":"SUBWAY","origin":{"name":"Jamaica"},"destination":{"name":"34 St"},"departure":{"dateTime":"2027-04-02T10:20"},"arrival":{"dateTime":"2027-04-02T10:45"},"cost":{"amount":275,"currency":"USD"},"line":"E","stops":12}]`
-
-	created := w.post(t, "/transfers", w.ana, `{"legs":`+legs+`}`)
-
-	if created["durationMinutes"] != float64(45) || created["totalCost"].(map[string]any)["amount"] != float64(575) ||
-		created["origin"].(map[string]any)["name"] != "JFK" || created["destination"].(map[string]any)["name"] != "34 St" ||
-		created["departure"].(map[string]any)["dateTime"] != "2027-04-02T10:00" || created["status"] != "PLANNED" || len(created["legs"].([]any)) != 3 {
-		t.Errorf("derived fields wrong: %v", created)
-	}
-
-	w.problem(t, "POST", "/transfers", w.ana, `{}`, 422, "validation_failed")
-	w.problem(t, "POST", "/transfers", w.ana, `{"legs":[{"mode":"BUS","origin":{"name":"A"},"destination":{"name":"B"},"departure":{"dateTime":"2027-04-02T10:00"},"arrival":{"dateTime":"2027-04-02T09:00"}}]}`, 422, "validation_failed")
-	w.problem(t, "POST", "/transfers", w.ana, `{"legs":[{"mode":"BUS","origin":{"name":"A"},"destination":{"name":"B"},"departure":{"dateTime":"2027-04-02T10:00"},"arrival":{"dateTime":"2027-04-02T11:00"}},{"mode":"BUS","origin":{"name":"B"},"destination":{"name":"C"},"departure":{"dateTime":"2027-04-02T10:30"},"arrival":{"dateTime":"2027-04-02T12:00"}}]}`, 422, "validation_failed")
-	w.problem(t, "POST", "/transfers", w.ana, `{"legs":[{"mode":"BUS","origin":{"name":"A"},"destination":{"name":"B"},"cost":{"amount":1,"currency":"USD"}},{"mode":"BUS","origin":{"name":"B"},"destination":{"name":"C"},"cost":{"amount":1,"currency":"BRL"}}]}`, 422, "validation_failed")
-	w.problem(t, "POST", "/transfers", w.ana, `{"legs":[{"mode":"HOVERCRAFT","origin":{"name":"A"},"destination":{"name":"B"}}]}`, 422, "validation_failed")
-
-	patched := apitest.Decode(t, w.Do("PATCH", w.base+"/transfers/"+created["id"].(string), w.ana.Token,
-		`{"baseVersion":1,"status":"CONFIRMED","legs":[{"mode":"TAXI","origin":{"name":"JFK"},"destination":{"name":"Hotel"},"estimatedDurationMinutes":50,"cost":{"amount":6000,"currency":"USD"}}]}`))
-	if patched["status"] != "CONFIRMED" || len(patched["legs"].([]any)) != 1 || patched["durationMinutes"] != float64(50) || patched["version"] != float64(2) {
-		t.Errorf("legs must be replaced as a whole: %v", patched)
 	}
 }
 
@@ -439,7 +411,7 @@ func TestSyncTripAndDocumentRules(t *testing.T) {
 	}
 }
 
-func TestPlaceSearchAndRoutePlanning(t *testing.T) {
+func TestPlaceSearch(t *testing.T) {
 	w := newWorld(t)
 	w.Places.Results = []place.Candidate{{ProviderID: "ChIJ1", Name: "Senso-ji", Address: "Asakusa", Coordinates: &kernel.Coordinates{Lat: 35.7, Lng: 139.8}, Types: []string{"temple"}}}
 
@@ -456,46 +428,19 @@ func TestPlaceSearchAndRoutePlanning(t *testing.T) {
 	if strings.Contains(fmt.Sprint(body), "secret-detail") {
 		t.Error("provider errors must not leak")
 	}
-
-	dep := time.Date(2027, 4, 2, 1, 0, 0, 0, time.UTC)
-	arr := dep.Add(20 * time.Minute)
-	stops := 5
-	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: 30 * time.Minute, DistanceMeters: 12000, Legs: []transfer.RouteLeg{
-		{Mode: transfer.ModeWalking, Origin: kernel.Location{Name: "A"}, Destination: kernel.Location{Name: "Station"}, Duration: 4 * time.Minute},
-		{Mode: transfer.ModeSubway, Origin: kernel.Location{Name: "Station"}, Destination: kernel.Location{Name: "B"}, Departure: &dep, Arrival: &arr, Duration: 20 * time.Minute, Line: "E", Stops: &stops},
-	}}}
-	plan := `{"origin":{"name":"Airport","latitude":35.55,"longitude":139.78},"destination":{"address":"Shinjuku, Tokyo"}}`
-	res := apitest.Decode(t, w.Do("POST", w.base+"/transfers/plan", w.ana.Token, plan))
-	route := res["routes"].([]any)[0].(map[string]any)
-	draft := route["transfer"].(map[string]any)
-	legs := draft["legs"].([]any)
-	subway := legs[1].(map[string]any)
-	if route["durationMinutes"] != float64(30) || draft["routeProvider"] != "fake" || draft["externalRouteId"] != "r1" || len(legs) != 2 ||
-		subway["departure"].(map[string]any)["dateTime"] != "2027-04-02T10:00" || subway["departure"].(map[string]any)["timezone"] != "Asia/Tokyo" {
-		t.Errorf("draft = %v", res)
-	}
-	saved := w.Do("POST", w.base+"/transfers", w.ana.Token, marshal(t, draft))
-	if saved.Code != http.StatusCreated {
-		t.Errorf("a draft must be savable as is: %d %s", saved.Code, saved.Body)
-	}
-
-	w.problem(t, "POST", "/transfers/plan", w.bia, plan, 403, "forbidden")
-	w.problem(t, "POST", "/transfers/plan", w.ana, `{"origin":{},"destination":{}}`, 422, "validation_failed")
-	w.Routes.Err = fmt.Errorf("boom")
-	w.problem(t, "POST", "/transfers/plan", w.ana, plan, 503, "provider_unavailable")
 }
 
 func TestGoogleCallsStopAtTheMonthlyLimit(t *testing.T) {
 	w := newWorld(t)
 	w.Places.Results = []place.Candidate{{ProviderID: "ChIJ1", Name: "Senso-ji"}}
-	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: time.Minute}}
-	plan := `{"origin":{"name":"A"},"destination":{"name":"B"}}`
+	w.Routes.Routes = []routing.Route{{ExternalID: "r1", Duration: time.Minute}}
+	plan := `{"stops":[{"location":{"name":"A"}},{"location":{"name":"B"}}]}`
 
 	// Every allowed call is counted, one bucket per API.
 	if rec := w.Do("GET", "/api/v1/places/search?q=senso", w.ana.Token, ""); rec.Code != 200 {
 		t.Fatalf("search = %d %s", rec.Code, rec.Body)
 	}
-	w.Do("POST", w.base+"/transfers/plan", w.ana.Token, plan)
+	w.Do("POST", w.base+"/maps/day", w.ana.Token, plan)
 	if w.Quota.Used(google.BucketPlaces) != 1 || w.Quota.Used(google.BucketRoutes) != 1 {
 		t.Errorf("used places=%d routes=%d, want 1 and 1", w.Quota.Used(google.BucketPlaces), w.Quota.Used(google.BucketRoutes))
 	}
@@ -510,79 +455,23 @@ func TestGoogleCallsStopAtTheMonthlyLimit(t *testing.T) {
 	if strings.Contains(fmt.Sprint(body), "google_places") {
 		t.Errorf("internal bucket names must not leak: %v", body)
 	}
-	if rec := w.Do("POST", w.base+"/transfers/plan", w.ana.Token, plan); rec.Code != 200 {
+	if rec := w.Do("POST", w.base+"/maps/day", w.ana.Token, plan); rec.Code != 200 {
 		t.Errorf("routes must keep working while only places are exhausted: %d %s", rec.Code, rec.Body)
 	}
 
 	w.Quota.Set(google.BucketRoutes, full.GoogleLimit)
-	w.problem(t, "POST", "/transfers/plan", w.ana, plan, 503, "provider_quota_exhausted")
-}
-
-func TestMapPictureOfARoute(t *testing.T) {
-	w := newWorld(t)
-	png := []byte("\x89PNG fake image")
-	w.Maps.Image = transfer.MapImage{Data: png, ContentType: "image/png"}
-	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: time.Minute, Polyline: "abc123"}}
-	body := `{"origin":{"name":"JFK","latitude":40.64,"longitude":-73.78},"destination":{"address":"Times Square, New York"},"mode":"TRAIN","language":"pt-BR"}`
-
-	rec := w.Do("POST", w.base+"/transfers/map", w.ana.Token, body)
-	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/png" || rec.Body.String() != string(png) {
-		t.Fatalf("map = %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
-	}
-	if cache := rec.Header().Get("Cache-Control"); !strings.HasPrefix(cache, "private") {
-		t.Errorf("Cache-Control = %q, want a private, short-lived picture", cache)
-	}
-	spec := w.Maps.Specs[len(w.Maps.Specs)-1]
-	if spec.Polyline != "abc123" || spec.Origin.Coordinates == nil || spec.Destination.Address != "Times Square, New York" || spec.Language != "pt-BR" {
-		t.Errorf("spec = %+v, want the route line and both ends", spec)
-	}
-
-	// Anyone who can read the trip can see its map; strangers learn nothing.
-	if rec := w.Do("POST", w.base+"/transfers/map", w.bia.Token, body); rec.Code != 200 {
-		t.Errorf("a viewer must see the map: %d %s", rec.Code, rec.Body)
-	}
-	w.problem(t, "POST", "/transfers/map", w.caio, body, 404, "trip_not_found")
-	apitest.RequireProblem(t, w.Do("POST", w.base+"/transfers/map", "", body), 401, "unauthenticated")
-	w.problem(t, "POST", "/transfers/map", w.ana, `{"origin":{},"destination":{}}`, 422, "validation_failed")
-	w.problem(t, "POST", "/transfers/map", w.ana, `{"origin":{"name":"A"},"destination":{"name":"B"},"mode":"JETPACK"}`, 422, "validation_failed")
-}
-
-func TestMapPictureDegradesInsteadOfFailing(t *testing.T) {
-	w := newWorld(t)
-	w.Maps.Image = transfer.MapImage{Data: []byte("img"), ContentType: "image/png"}
-	body := `{"origin":{"name":"A"},"destination":{"name":"B"}}`
-
-	// No route line (the lookup failed): the two markers are still drawn.
-	w.Routes.Err = fmt.Errorf("routes down")
-	if rec := w.Do("POST", w.base+"/transfers/map", w.ana.Token, body); rec.Code != 200 {
-		t.Fatalf("a failed route lookup must not fail the map: %d %s", rec.Code, rec.Body)
-	}
-	if got := w.Maps.Specs[len(w.Maps.Specs)-1].Polyline; got != "" {
-		t.Errorf("polyline = %q, want none", got)
-	}
-	w.Routes.Err = nil
-
-	// The renderer itself failing is reported without leaking why.
-	w.Maps.Err = fmt.Errorf("upstream exploded: secret-detail")
-	problem := w.problem(t, "POST", "/transfers/map", w.ana, body, 503, "provider_unavailable")
-	if strings.Contains(fmt.Sprint(problem), "secret-detail") {
-		t.Error("provider errors must not leak")
-	}
-	w.Maps.Err = nil
-
-	// A spent monthly allowance stops the calls: Google is not contacted again.
-	w.Quota.Set(google.BucketMaps, full.GoogleLimit)
-	drawn := len(w.Maps.Specs)
-	w.problem(t, "POST", "/transfers/map", w.ana, body, 503, "provider_quota_exhausted")
-	if len(w.Maps.Specs) != drawn {
-		t.Error("the renderer was called after the monthly limit was reached")
+	res := apitest.Decode(t, w.Do("POST", w.base+"/maps/day", w.ana.Token, plan))
+	for _, leg := range res["legs"].([]any) {
+		if leg.(map[string]any)["available"] == true {
+			t.Errorf("leg = %v, want unavailable once the routes allowance is spent", leg)
+		}
 	}
 }
 
 func TestMapOfOnePlace(t *testing.T) {
 	w := newWorld(t)
 	png := []byte("\x89PNG pin")
-	w.Maps.Image = transfer.MapImage{Data: png, ContentType: "image/png"}
+	w.Maps.Image = kernel.MapImage{Data: png, ContentType: "image/png"}
 	body := `{"location":{"name":"Torre de Tóquio","address":"Minato, Tokyo","latitude":35.6586,"longitude":139.7454},"language":"pt-BR"}`
 
 	rec := w.Do("POST", w.base+"/maps/location", w.ana.Token, body)
@@ -623,8 +512,8 @@ func TestMapOfOnePlace(t *testing.T) {
 
 func TestPlanTheDayOnAMap(t *testing.T) {
 	w := newWorld(t)
-	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: 12 * time.Minute, DistanceMeters: 2300, Polyline: "abc123"}}
-	w.Maps.Image = transfer.MapImage{Data: []byte("\x89PNG day"), ContentType: "image/png"}
+	w.Routes.Routes = []routing.Route{{ExternalID: "r1", Duration: 12 * time.Minute, DistanceMeters: 2300, Polyline: "abc123"}}
+	w.Maps.Image = kernel.MapImage{Data: []byte("\x89PNG day"), ContentType: "image/png"}
 	stops := `[{"label":"Metropolitan Museum","location":{"name":"Met","latitude":40.7794,"longitude":-73.9632}},
 		{"label":"Almoço","location":{"name":"Katz's","address":"205 E Houston St"}},
 		{"label":"Jantar no mesmo lugar","location":{"name":"Katz's","address":"205 E Houston St"}},
@@ -673,8 +562,8 @@ func TestPlanTheDayOnAMap(t *testing.T) {
 
 func TestPlanAWholeTripOnAMap(t *testing.T) {
 	w := newWorld(t)
-	w.Routes.Routes = []transfer.Route{{ExternalID: "r1", Duration: 10 * time.Minute, DistanceMeters: 1500, Polyline: "abc123"}}
-	w.Maps.Image = transfer.MapImage{Data: []byte("img"), ContentType: "image/png"}
+	w.Routes.Routes = []routing.Route{{ExternalID: "r1", Duration: 10 * time.Minute, DistanceMeters: 1500, Polyline: "abc123"}}
+	w.Maps.Image = kernel.MapImage{Data: []byte("img"), ContentType: "image/png"}
 
 	// Sixty places over a fortnight, each day its own group with its day number on the pin.
 	var stops []string
@@ -711,7 +600,7 @@ func TestPlanAWholeTripOnAMap(t *testing.T) {
 
 func TestPlanTheDayDegradesInsteadOfFailing(t *testing.T) {
 	w := newWorld(t)
-	w.Maps.Image = transfer.MapImage{Data: []byte("img"), ContentType: "image/png"}
+	w.Maps.Image = kernel.MapImage{Data: []byte("img"), ContentType: "image/png"}
 	body := `{"stops":[{"location":{"name":"A"}},{"location":{"name":"B"}},{"location":{"name":"C"}}],"includeImage":true}`
 
 	// The provider is down: the day still comes back, with no times invented.
@@ -748,15 +637,6 @@ func TestPlanTheDayDegradesInsteadOfFailing(t *testing.T) {
 			t.Errorf("leg = %v, want unavailable", leg)
 		}
 	}
-}
-
-func marshal(t *testing.T, v any) string {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
 }
 
 // readyDocument uploads and confirms a document the way a client does, and returns its id.

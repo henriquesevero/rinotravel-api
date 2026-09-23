@@ -48,7 +48,7 @@ func (s *Payments) Resource() *resource.Service[Payment] { return s.res }
 func (s *Payments) Create(ctx context.Context, actor user.ID, tripID trip.ID, in PaymentCreate) (resource.Result[Payment], error) {
 	return s.res.Create(ctx, actor, tripID, in.ID, func(trip.Access) (Payment, error) {
 		var v kernel.Validator
-		v.Check(linkTypes[in.Link.Type], "link.type", "must be one of place, restaurant, itinerary_item, ticket, hotel, flight, transfer")
+		v.Check(linkTypes[in.Link.Type], "link.type", "must be one of place, restaurant, itinerary_item, ticket, hotel, flight")
 		v.Check(ids.IsValid(in.Link.ID), "link.id", "must be a lowercase UUID")
 		if err := v.Err(); err != nil {
 			return Payment{}, err

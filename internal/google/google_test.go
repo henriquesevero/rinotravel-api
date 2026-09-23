@@ -12,7 +12,7 @@ import (
 
 	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/kernel"
-	"rinotravel-api/internal/transfer"
+	"rinotravel-api/internal/routing"
 )
 
 func fakeGoogle(t *testing.T, status int, response string, seen *seenRequest) *httptest.Server {
@@ -90,7 +90,7 @@ func TestRoutesComputeMapsGoogleStepsToLegs(t *testing.T) {
 	server := fakeGoogle(t, 200, routesResponse, &seen)
 	when := time.Date(2027, 4, 2, 0, 30, 0, 0, time.UTC)
 
-	routes, err := google.NewRoutesWithBase("k", server.URL, nil).Compute(context.Background(), transfer.RouteRequest{
+	routes, err := google.NewRoutesWithBase("k", server.URL, nil).Compute(context.Background(), routing.RouteRequest{
 		Origin:      kernel.Location{Name: "Airport", Coordinates: &kernel.Coordinates{Lat: 1, Lng: 1}},
 		Destination: kernel.Location{Address: "Shinjuku, Tokyo"},
 		DepartureAt: &when, Language: "pt-BR",
@@ -104,14 +104,14 @@ func TestRoutesComputeMapsGoogleStepsToLegs(t *testing.T) {
 		t.Fatalf("route = %+v; want the two consecutive walks merged into one leg (4 legs)", route)
 	}
 	walk, subway, bus, last := route.Legs[0], route.Legs[1], route.Legs[2], route.Legs[3]
-	if walk.Mode != transfer.ModeWalking || walk.Duration != 5*time.Minute || walk.Instructions != "Head north Turn left" {
+	if walk.Mode != routing.ModeWalking || walk.Duration != 5*time.Minute || walk.Instructions != "Head north Turn left" {
 		t.Errorf("merged walk = %+v", walk)
 	}
-	if subway.Mode != transfer.ModeSubway || subway.Line != "E" || subway.Direction != "Uptown" || *subway.Stops != 7 || subway.Origin.Name != "Station A" ||
+	if subway.Mode != routing.ModeSubway || subway.Line != "E" || subway.Direction != "Uptown" || *subway.Stops != 7 || subway.Origin.Name != "Station A" ||
 		subway.Departure == nil || !subway.Departure.Equal(time.Date(2027, 4, 2, 1, 0, 0, 0, time.UTC)) || subway.Arrival == nil {
 		t.Errorf("subway = %+v", subway)
 	}
-	if bus.Mode != transfer.ModeBus || bus.Line != "Airport Bus" || last.Mode != transfer.ModeWalking {
+	if bus.Mode != routing.ModeBus || bus.Line != "Airport Bus" || last.Mode != routing.ModeWalking {
 		t.Errorf("bus/last = %+v / %+v", bus, last)
 	}
 
@@ -125,11 +125,11 @@ func TestRoutesComputeMapsGoogleStepsToLegs(t *testing.T) {
 }
 
 func TestRoutesTravelModeMapping(t *testing.T) {
-	cases := map[transfer.Mode]string{transfer.ModeWalking: "WALK", transfer.ModeCar: "DRIVE", transfer.ModeTaxi: "DRIVE", transfer.ModeRideshare: "DRIVE", transfer.ModeSubway: "TRANSIT", "": "TRANSIT"}
+	cases := map[routing.Mode]string{routing.ModeWalking: "WALK", routing.ModeCar: "DRIVE", routing.ModeTaxi: "DRIVE", routing.ModeRideshare: "DRIVE", routing.ModeSubway: "TRANSIT", "": "TRANSIT"}
 	for mode, want := range cases {
 		var seen seenRequest
 		server := fakeGoogle(t, 200, `{"routes":[]}`, &seen)
-		if _, err := google.NewRoutesWithBase("k", server.URL, nil).Compute(context.Background(), transfer.RouteRequest{Origin: kernel.Location{Name: "A"}, Destination: kernel.Location{Name: "B"}, Mode: mode}); err != nil {
+		if _, err := google.NewRoutesWithBase("k", server.URL, nil).Compute(context.Background(), routing.RouteRequest{Origin: kernel.Location{Name: "A"}, Destination: kernel.Location{Name: "B"}, Mode: mode}); err != nil {
 			t.Fatal(err)
 		}
 		var body map[string]any
@@ -143,7 +143,7 @@ func TestRoutesTravelModeMapping(t *testing.T) {
 func TestRoutesUpstreamFailure(t *testing.T) {
 	server := fakeGoogle(t, 500, `{"error":{"status":"INTERNAL","message":"oops"}}`, nil)
 
-	_, err := google.NewRoutesWithBase("k", server.URL, nil).Compute(context.Background(), transfer.RouteRequest{})
+	_, err := google.NewRoutesWithBase("k", server.URL, nil).Compute(context.Background(), routing.RouteRequest{})
 
 	if err == nil || !strings.Contains(err.Error(), "500") {
 		t.Errorf("error = %v", err)

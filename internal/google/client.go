@@ -1,5 +1,5 @@
 // Package google adapts Google Maps Platform (Places API New and Routes API) to the place and
-// transfer ports. It talks plain HTTPS+JSON; the API key travels in a header and is never logged.
+// routing ports. It talks plain HTTPS+JSON; the API key travels in a header and is never logged.
 package google
 
 import (

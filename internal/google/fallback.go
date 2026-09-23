@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"rinotravel-api/internal/kernel"
-	"rinotravel-api/internal/transfer"
+	"rinotravel-api/internal/routing"
 )
 
 // EnglishFallback asks again in English when a route request came back empty because a place was
@@ -17,16 +17,16 @@ import (
 // a real "no route" and is not asked again. It wraps the metered provider, so the second call is
 // counted against the monthly limit like any other.
 type EnglishFallback struct {
-	inner transfer.RouteProvider
+	inner routing.RouteProvider
 }
 
-func NewEnglishFallback(inner transfer.RouteProvider) *EnglishFallback {
+func NewEnglishFallback(inner routing.RouteProvider) *EnglishFallback {
 	return &EnglishFallback{inner: inner}
 }
 
 func (r *EnglishFallback) Name() string { return r.inner.Name() }
 
-func (r *EnglishFallback) Compute(ctx context.Context, req transfer.RouteRequest) ([]transfer.Route, error) {
+func (r *EnglishFallback) Compute(ctx context.Context, req routing.RouteRequest) ([]routing.Route, error) {
 	routes, err := r.inner.Compute(ctx, req)
 	if err != nil || len(routes) > 0 || !retryableLanguage(req.Language) || (!nameOnly(req.Origin) && !nameOnly(req.Destination)) {
 		return routes, err

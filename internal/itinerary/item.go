@@ -31,7 +31,7 @@ func ParseCategory(s string) (Category, error) {
 
 const maxDurationMinutes = 7 * 24 * 60
 
-// Item is a manual entry of the plan. Flights, hotels and transfers are their own entities and
+// Item is a manual entry of the plan. Flights, hotels and other bookings are their own entities and
 // join the timeline through EntrySource instead of being duplicated here.
 type Item struct {
 	kernel.Base

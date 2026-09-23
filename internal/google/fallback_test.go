@@ -6,17 +6,17 @@ import (
 
 	"rinotravel-api/internal/google"
 	"rinotravel-api/internal/kernel"
-	"rinotravel-api/internal/transfer"
+	"rinotravel-api/internal/routing"
 )
 
 // bareNames finds no route in Portuguese, the way the real service does for a place given only as a name.
 type bareNames struct{ languages []string }
 
 func (b *bareNames) Name() string { return "fake" }
-func (b *bareNames) Compute(_ context.Context, req transfer.RouteRequest) ([]transfer.Route, error) {
+func (b *bareNames) Compute(_ context.Context, req routing.RouteRequest) ([]routing.Route, error) {
 	b.languages = append(b.languages, req.Language)
 	if req.Language == "en" {
-		return []transfer.Route{{ExternalID: "r1"}}, nil
+		return []routing.Route{{ExternalID: "r1"}}, nil
 	}
 	return nil, nil
 }
@@ -42,7 +42,7 @@ func TestEnglishFallback(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			inner := &bareNames{}
 			provider := google.NewEnglishFallback(inner)
-			routes, err := provider.Compute(context.Background(), transfer.RouteRequest{Origin: tc.origin, Destination: tc.origin, Language: tc.language})
+			routes, err := provider.Compute(context.Background(), routing.RouteRequest{Origin: tc.origin, Destination: tc.origin, Language: tc.language})
 			if err != nil {
 				t.Fatalf("Compute: %v", err)
 			}

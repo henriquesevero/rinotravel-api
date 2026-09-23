@@ -35,13 +35,11 @@ import (
 	"rinotravel-api/internal/platform/config"
 	"rinotravel-api/internal/platform/httpx"
 	quotamongo "rinotravel-api/internal/quota/mongorepo"
+	"rinotravel-api/internal/routing"
 	"rinotravel-api/internal/server"
 	"rinotravel-api/internal/syncengine"
 	syncapi "rinotravel-api/internal/syncengine/httpapi"
 	"rinotravel-api/internal/syncengine/mongolog"
-	"rinotravel-api/internal/transfer"
-	transferapi "rinotravel-api/internal/transfer/httpapi"
-	transfermongo "rinotravel-api/internal/transfer/mongorepo"
 	"rinotravel-api/internal/trip"
 	tripapi "rinotravel-api/internal/trip/httpapi"
 	tripmongo "rinotravel-api/internal/trip/mongorepo"
@@ -91,7 +89,6 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	flights := bookingmongo.NewFlightStore(d.DB)
 	hotels := bookingmongo.NewHotelStore(d.DB)
 	tickets := bookingmongo.NewTicketStore(d.DB)
-	transfers := transfermongo.NewStore(d.DB)
 	documents := documentmongo.NewStore(d.DB)
 	expenses := expensemongo.NewExpenseStore(d.DB)
 	limits := expensemongo.NewLimitStore(d.DB)
@@ -106,7 +103,6 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		func(ctx context.Context) error { return flights.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return hotels.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return tickets.EnsureIndexes(ctx) },
-		func(ctx context.Context) error { return transfers.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return documents.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return expenses.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return limits.EnsureIndexes(ctx, expensemongo.LimitIndexes()...) },
@@ -131,12 +127,10 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	placesUC := place.NewPlaces(places, authz)
 	restaurantsUC := place.NewRestaurants(restaurants, authz)
 	placesDeps := placeapi.Deps{Logger: d.Logger, Guard: guard, Places: placesUC, Restaurants: restaurantsUC}
-	transferUC := transfer.NewTransfers(transfers, authz)
-	transferDeps := transferapi.Deps{Logger: d.Logger, Guard: guard, Transfers: transferUC}
 	if d.Config.GoogleMapsAPIKey != "" {
 		var placeProvider place.PlaceProvider = google.NewPlaces(d.Config.GoogleMapsAPIKey)
-		var routeProvider transfer.RouteProvider = google.NewRoutes(d.Config.GoogleMapsAPIKey)
-		var mapRenderer transfer.MapRenderer = google.NewStaticMaps(d.Config.GoogleMapsAPIKey)
+		var routeProvider routing.RouteProvider = google.NewRoutes(d.Config.GoogleMapsAPIKey)
+		var mapRenderer any = google.NewStaticMaps(d.Config.GoogleMapsAPIKey)
 		if limit := d.Config.GoogleMonthlyLimit; limit > 0 {
 			counter := quotamongo.New(d.DB)
 			placeProvider = google.NewMeteredPlaces(placeProvider, counter, limit, d.Logger)
@@ -151,9 +145,6 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		placesDeps.SearchLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
 		placesDeps.Maps = place.NewLocationMaps(mapRenderer.(place.PinRenderer), authz, d.Logger)
 		placesDeps.MapLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
-		transferDeps.Planner = transfer.NewPlanner(routeProvider, authz, d.Logger)
-		transferDeps.Maps = transfer.NewMaps(routeProvider, mapRenderer, authz, d.Logger)
-		transferDeps.MapLimiter = httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))
 		reg.add(daymapapi.New(d.Logger, guard,
 			daymap.NewService(routeProvider, mapRenderer.(daymap.ImageRenderer), authz, d.Logger),
 			httpx.NewRateLimiter(providerRateLimit, time.Minute, httpx.ClientIP(d.Config.TrustProxy))))
@@ -169,9 +160,6 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		Payments: expense.NewPayments(payments, authz),
 	})
 	reg.add(expenseHandler, expenseHandler.SyncSources()...)
-
-	transferHandler := transferapi.New(transferDeps)
-	reg.add(transferHandler, transferHandler.SyncSources()...)
 
 	// Tickets can point at a file in the documents; without documents there is nothing to point at.
 	var documentService *document.Documents
@@ -202,7 +190,7 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		Items:  itinerary.NewItems(items, days, authz),
 		Places: placesUC,
 		Timeline: itinerary.NewTimeline(days, items, authz,
-			place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels, tickets), transfer.NewTimelineSource(transfers)),
+			place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels, tickets)),
 	})
 	reg.add(itineraryHandler, itineraryHandler.SyncSources()...)
 
