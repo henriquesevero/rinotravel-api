@@ -16,11 +16,13 @@ type Deps struct {
 	Guard    authapi.Guard
 	Expenses *expense.Expenses
 	Limits   *expense.Limits
+	Payments *expense.Payments
 }
 
 type Handler struct {
 	Expenses httpres.Routes[expense.Expense, expense.Create, expense.Patch]
 	Limits   httpres.Routes[expense.Limit, expense.LimitCreate, expense.LimitPatch]
+	Payments httpres.Routes[expense.Payment, expense.PaymentCreate, expense.PaymentPatch]
 }
 
 func New(d Deps) *Handler {
@@ -35,16 +37,22 @@ func New(d Deps) *Handler {
 			Service: d.Limits.Resource(), Create: d.Limits.Create, Update: d.Limits.Update,
 			Present: func(l expense.Limit, _ trip.Role) any { return presentLimit(l) },
 		},
+		Payments: httpres.Routes[expense.Payment, expense.PaymentCreate, expense.PaymentPatch]{
+			Logger: d.Logger, Guard: d.Guard, Path: "/api/v1/trips/{tripId}/payments",
+			Service: d.Payments.Resource(), Create: d.Payments.Create, Update: d.Payments.Update,
+			Present: func(p expense.Payment, _ trip.Role) any { return presentPayment(p) },
+		},
 	}
 }
 
 func (h *Handler) Mount(mux *http.ServeMux) {
 	h.Expenses.Mount(mux)
 	h.Limits.Mount(mux)
+	h.Payments.Mount(mux)
 }
 
 func (h *Handler) SyncSources() []syncengine.Source {
-	return []syncengine.Source{h.Expenses.SyncSource("expense"), h.Limits.SyncSource("budget_limit")}
+	return []syncengine.Source{h.Expenses.SyncSource("expense"), h.Limits.SyncSource("budget_limit"), h.Payments.SyncSource("payment")}
 }
 
 type LinkDTO struct {
@@ -83,4 +91,14 @@ type LimitResponse struct {
 
 func presentLimit(l expense.Limit) LimitResponse {
 	return LimitResponse{Meta: httpres.MetaOf(l.Base), Category: l.Category, Amount: *httpres.MoneyOf(&l.Amount)}
+}
+
+type PaymentResponse struct {
+	httpres.Meta
+	Link LinkDTO `json:"link"`
+	Paid bool    `json:"paid"`
+}
+
+func presentPayment(p expense.Payment) PaymentResponse {
+	return PaymentResponse{Meta: httpres.MetaOf(p.Base), Link: LinkDTO{Type: p.LinkType, ID: p.LinkID}, Paid: p.Paid}
 }

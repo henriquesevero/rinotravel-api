@@ -941,3 +941,32 @@ func TestFlightsAndHotelsCarryTheirPrice(t *testing.T) {
 	}
 	w.problem(t, "POST", "/hotels", w.ana, `{"name":"H","checkIn":{"dateTime":"2027-04-02T15:00"},"checkOut":{"dateTime":"2027-04-05T11:00"},"cost":{"amount":-5,"currency":"USD"}}`, 422, "validation_failed")
 }
+
+func TestPaymentMarksSayWhetherAPriceIsPaid(t *testing.T) {
+	w := newWorld(t)
+	ticket := "01a0c09e-ba92-7abe-96c8-0b4d06f661f4"
+
+	mark := w.post(t, "/payments", w.ana, `{"link":{"type":"ticket","id":"`+ticket+`"}}`)
+	if mark["paid"] != true || mark["link"].(map[string]any)["id"] != ticket {
+		t.Fatalf("payment = %v", mark)
+	}
+	// One mark per priced record; changing it goes through the mark that exists.
+	w.problem(t, "POST", "/payments", w.ana, `{"link":{"type":"ticket","id":"`+ticket+`"}}`, 409, "payment_exists")
+	unpaid := apitest.Decode(t, w.Do("PATCH", w.base+"/payments/"+mark["id"].(string), w.ana.Token, `{"baseVersion":1,"paid":false}`))
+	if unpaid["paid"] != false {
+		t.Errorf("unpaid = %v", unpaid)
+	}
+
+	w.problem(t, "POST", "/payments", w.ana, `{"link":{"type":"moon","id":"`+ticket+`"}}`, 422, "validation_failed")
+	w.problem(t, "POST", "/payments", w.ana, `{"link":{"type":"ticket","id":"nope"}}`, 422, "validation_failed")
+	w.problem(t, "POST", "/payments", w.bia, `{"link":{"type":"hotel","id":"`+ticket+`"}}`, 403, "forbidden")
+	if items := w.get(t, "/payments", w.bia)["items"].([]any); len(items) != 1 {
+		t.Errorf("a viewer sees %d marks, want 1", len(items))
+	}
+
+	// Taking the mark off lets the price be marked again.
+	if rec := w.Do("DELETE", w.base+"/payments/"+mark["id"].(string), w.ana.Token, ""); rec.Code != 204 {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body)
+	}
+	w.post(t, "/payments", w.ana, `{"link":{"type":"ticket","id":"`+ticket+`"},"paid":false}`)
+}

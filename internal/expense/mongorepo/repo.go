@@ -74,3 +74,32 @@ func NewLimitStore(db *mongo.Database) *mongostore.Store[expense.Limit] {
 func LimitIndexes() []mongo.IndexModel {
 	return []mongo.IndexModel{mongostore.UniqueAmongLive(bson.E{Key: "category", Value: 1})}
 }
+
+type paymentDoc struct {
+	LinkType string `bson:"linkType"`
+	LinkID   string `bson:"linkId"`
+	Paid     bool   `bson:"paid"`
+}
+
+var paymentCodec = mongostore.Codec[expense.Payment]{
+	Base: expense.PaymentBase,
+	Encode: func(p expense.Payment) bson.D {
+		return mongostore.Marshal(paymentDoc{LinkType: p.LinkType, LinkID: p.LinkID, Paid: p.Paid})
+	},
+	Decode: func(raw bson.Raw, base kernel.Base) (expense.Payment, error) {
+		var d paymentDoc
+		if err := bson.Unmarshal(raw, &d); err != nil {
+			return expense.Payment{}, err
+		}
+		return expense.Payment{Base: base, LinkType: d.LinkType, LinkID: d.LinkID, Paid: d.Paid}, nil
+	},
+}
+
+func NewPaymentStore(db *mongo.Database) *mongostore.Store[expense.Payment] {
+	return mongostore.New(db, "payments", paymentCodec)
+}
+
+// PaymentIndexes keeps one payment mark per priced record.
+func PaymentIndexes() []mongo.IndexModel {
+	return []mongo.IndexModel{mongostore.UniqueAmongLive(bson.E{Key: "linkType", Value: 1}, bson.E{Key: "linkId", Value: 1})}
+}

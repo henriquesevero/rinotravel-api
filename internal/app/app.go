@@ -95,6 +95,7 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	documents := documentmongo.NewStore(d.DB)
 	expenses := expensemongo.NewExpenseStore(d.DB)
 	limits := expensemongo.NewLimitStore(d.DB)
+	payments := expensemongo.NewPaymentStore(d.DB)
 
 	for _, ensure := range []func(context.Context) error{
 		users.EnsureIndexes, sessions.EnsureIndexes, trips.EnsureIndexes, mutations.EnsureIndexes,
@@ -109,6 +110,7 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		func(ctx context.Context) error { return documents.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return expenses.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return limits.EnsureIndexes(ctx, expensemongo.LimitIndexes()...) },
+		func(ctx context.Context) error { return payments.EnsureIndexes(ctx, expensemongo.PaymentIndexes()...) },
 	} {
 		if err := ensure(ctx); err != nil {
 			return nil, err
@@ -164,6 +166,7 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 	expenseHandler := expenseapi.New(expenseapi.Deps{
 		Logger: d.Logger, Guard: guard,
 		Expenses: expense.NewExpenses(expenses, authz), Limits: expense.NewLimits(limits, authz),
+		Payments: expense.NewPayments(payments, authz),
 	})
 	reg.add(expenseHandler, expenseHandler.SyncSources()...)
 

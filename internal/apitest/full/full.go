@@ -118,6 +118,7 @@ func New(t *testing.T) *Stack {
 		tickets := resourcetest.New(booking.TicketBase)
 		expenses := resourcetest.New(expense.Base)
 		limits := resourcetest.New(expense.LimitBase)
+		payments := resourcetest.New(expense.PaymentBase)
 		transfers := resourcetest.New(transfer.Base)
 		documents := resourcetest.New(document.Base)
 
@@ -131,7 +132,7 @@ func New(t *testing.T) *Stack {
 		documentService := document.NewDocuments(documents, authz, s.Storage, "test", e.Logger)
 		documentH := documentapi.New(documentapi.Deps{Logger: e.Logger, Guard: e.Guard, Documents: documentService})
 		bookingH := bookingapi.New(bookingapi.Deps{Logger: e.Logger, Guard: e.Guard, Flights: booking.NewFlights(flights, authz), Hotels: booking.NewHotels(hotels, authz), Tickets: booking.NewTickets(tickets, authz, documentService)})
-		expenseH := expenseapi.New(expenseapi.Deps{Logger: e.Logger, Guard: e.Guard, Expenses: expense.NewExpenses(expenses, authz), Limits: expense.NewLimits(limits, authz)})
+		expenseH := expenseapi.New(expenseapi.Deps{Logger: e.Logger, Guard: e.Guard, Expenses: expense.NewExpenses(expenses, authz), Limits: expense.NewLimits(limits, authz), Payments: expense.NewPayments(payments, authz)})
 		routes := google.NewMeteredRoutes(s.Routes, s.Quota, GoogleLimit, e.Logger)
 		transferH := transferapi.New(transferapi.Deps{
 			Logger: e.Logger, Guard: e.Guard, Transfers: transfer.NewTransfers(transfers, authz),

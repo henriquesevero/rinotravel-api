@@ -1646,6 +1646,134 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /api/v1/trips/{tripId}/payments:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Expenses]
+      operationId: listPayments
+      summary: Lista as marcas de pagamento
+      responses:
+        '200':
+          description: Lista de as marcas de pagamento.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Expenses]
+      operationId: createPayment
+      summary: Cria a marca de pagamento (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/payments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Expenses]
+      operationId: getPayment
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Expenses]
+      operationId: updatePayment
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER). Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Expenses]
+      operationId: deletePayment
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /api/v1/trips/{tripId}/transfers:
     parameters:
       - $ref: '#/components/parameters/TripId'
@@ -3579,6 +3707,45 @@ components:
           properties:
             amount:
               $ref: '#/components/schemas/Money'
+
+    Payment:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [link, paid]
+          description: |
+            Diz se o preço de um registro (ingresso, voo, refeição do roteiro...) já foi pago. Esses preços
+            moram nos próprios registros e não são copiados para os gastos, então o pago fica aqui. Sem marca,
+            o preço conta como pago quando a data passa; uma marca vale nos dois sentidos. Uma por registro
+            (repetir devolve `payment_exists`).
+          properties:
+            link:
+              $ref: '#/components/schemas/ExpenseLink'
+            paid:
+              type: boolean
+
+    PaymentCreate:
+      type: object
+      additionalProperties: false
+      required: [link]
+      properties:
+        id:
+          type: string
+          format: uuid
+        link:
+          $ref: '#/components/schemas/ExpenseLink'
+        paid:
+          type: boolean
+          description: Padrão `true`.
+
+    PaymentPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            paid:
+              type: boolean
 
     TicketKind:
       type: string
