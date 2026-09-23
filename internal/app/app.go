@@ -16,6 +16,9 @@ import (
 	"rinotravel-api/internal/booking"
 	bookingapi "rinotravel-api/internal/booking/httpapi"
 	bookingmongo "rinotravel-api/internal/booking/mongorepo"
+	"rinotravel-api/internal/checklist"
+	checklistapi "rinotravel-api/internal/checklist/httpapi"
+	checklistmongo "rinotravel-api/internal/checklist/mongorepo"
 	"rinotravel-api/internal/daymap"
 	daymapapi "rinotravel-api/internal/daymap/httpapi"
 	"rinotravel-api/internal/document"
@@ -84,6 +87,7 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 
 	days := itinerarymongo.NewDayStore(d.DB)
 	items := itinerarymongo.NewItemStore(d.DB)
+	checklistItems := checklistmongo.NewItemStore(d.DB)
 	places := placemongo.NewPlaceStore(d.DB)
 	restaurants := placemongo.NewRestaurantStore(d.DB)
 	flights := bookingmongo.NewFlightStore(d.DB)
@@ -98,6 +102,7 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 		users.EnsureIndexes, sessions.EnsureIndexes, trips.EnsureIndexes, mutations.EnsureIndexes,
 		func(ctx context.Context) error { return days.EnsureIndexes(ctx, itinerarymongo.DayIndexes()...) },
 		func(ctx context.Context) error { return items.EnsureIndexes(ctx) },
+		func(ctx context.Context) error { return checklistItems.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return places.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return restaurants.EnsureIndexes(ctx) },
 		func(ctx context.Context) error { return flights.EnsureIndexes(ctx) },
@@ -193,6 +198,11 @@ func Build(ctx context.Context, d Deps) ([]server.Module, error) {
 			place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels, tickets)),
 	})
 	reg.add(itineraryHandler, itineraryHandler.SyncSources()...)
+
+	checklistHandler := checklistapi.New(checklistapi.Deps{
+		Logger: d.Logger, Guard: guard, Items: checklist.NewItems(checklistItems, authz),
+	})
+	reg.add(checklistHandler, checklistHandler.SyncSource())
 
 	engine := syncengine.NewEngine(authz, mutations, mongolog.NewTransactor(d.DB), reg.sources...)
 	reg.add(syncapi.New(d.Logger, guard, engine))

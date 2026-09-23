@@ -12,6 +12,8 @@ import (
 	"rinotravel-api/internal/apitest"
 	"rinotravel-api/internal/booking"
 	bookingapi "rinotravel-api/internal/booking/httpapi"
+	"rinotravel-api/internal/checklist"
+	checklistapi "rinotravel-api/internal/checklist/httpapi"
 	"rinotravel-api/internal/daymap"
 	daymapapi "rinotravel-api/internal/daymap/httpapi"
 	"rinotravel-api/internal/document"
@@ -104,6 +106,7 @@ func New(t *testing.T) *Stack {
 		authz := e.Authz
 		days := resourcetest.New(itinerary.DayBase).WithUnique(func(a, b itinerary.Day) bool { return a.Date == b.Date })
 		items := resourcetest.New(itinerary.ItemBase)
+		checklistItems := resourcetest.New(checklist.ItemBase)
 		places := resourcetest.New(place.PlaceBase)
 		restaurants := resourcetest.New(place.RestaurantBase)
 		flights := resourcetest.New(booking.FlightBase)
@@ -132,6 +135,7 @@ func New(t *testing.T) *Stack {
 			Timeline: itinerary.NewTimeline(days, items, authz,
 				place.NewTimelineSource(restaurants), booking.NewTimelineSource(flights, hotels, tickets)),
 		})
+		checklistH := checklistapi.New(checklistapi.Deps{Logger: e.Logger, Guard: e.Guard, Items: checklist.NewItems(checklistItems, authz)})
 
 		var sources []syncengine.Source
 		sources = append(sources, itineraryH.SyncSources()...)
@@ -139,6 +143,7 @@ func New(t *testing.T) *Stack {
 		sources = append(sources, bookingH.SyncSources()...)
 		sources = append(sources, expenseH.SyncSources()...)
 		sources = append(sources, documentH.SyncSource())
+		sources = append(sources, checklistH.SyncSource())
 		if tripsHandler, ok := tripHandler(e); ok {
 			sources = append(sources, tripsHandler.SyncSource(e.Trips))
 		}
@@ -148,7 +153,7 @@ func New(t *testing.T) *Stack {
 			daymap.NewService(routes, google.NewMeteredMaps(s.Maps, s.Quota, GoogleLimit, e.Logger), e.Authz, e.Logger),
 			httpx.NewRateLimiter(1000, time.Minute, httpx.ClientIP(false)))
 
-		return []server.Module{placeH, bookingH, expenseH, documentH, itineraryH, dayH, syncapi.New(e.Logger, e.Guard, engine)}
+		return []server.Module{placeH, bookingH, expenseH, documentH, itineraryH, checklistH, dayH, syncapi.New(e.Logger, e.Guard, engine)}
 	})
 	return s
 }

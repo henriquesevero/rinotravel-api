@@ -30,6 +30,8 @@ tags:
     description: Voos e hospedagens.
   - name: Expenses
     description: Gastos da viagem (planejados e pagos), ligados a lugares, e o orçamento por categoria.
+  - name: Checklist
+    description: Lista de tarefas e do que levar na mala, manual, sem sugestão automática.
   - name: Documents
     description: Arquivos da viagem, armazenados no MongoDB (GridFS) e entregues por link assinado.
   - name: Sync
@@ -1844,6 +1846,134 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
+  /api/v1/trips/{tripId}/checklist-items:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+    get:
+      tags: [Checklist]
+      operationId: listChecklistItems
+      summary: Lista os itens da checklist
+      responses:
+        '200':
+          description: Lista de itens da checklist.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChecklistItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Checklist]
+      operationId: createChecklistItem
+      summary: Cria um item da checklist (OWNER, ADMIN, MEMBER). O id pode ser gerado pelo cliente (UUID v7), o que torna a criação idempotente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChecklistItemCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChecklistItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/trips/{tripId}/checklist-items/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TripId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Checklist]
+      operationId: getChecklistItem
+      summary: Detalhes
+      responses:
+        '200':
+          description: O registro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChecklistItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Checklist]
+      operationId: updateChecklistItem
+      summary: Atualização parcial (OWNER, ADMIN, MEMBER), inclusive marcar/desmarcar. Exige `baseVersion`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChecklistItemPatch'
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChecklistItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Checklist]
+      operationId: deleteChecklistItem
+      summary: Remove (soft delete; deixa um tombstone para o sync)
+      responses:
+        '204':
+          description: Removido.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /api/v1/trips/{tripId}/documents:
     parameters:
       - $ref: '#/components/parameters/TripId'
@@ -2733,6 +2863,70 @@ components:
           properties:
             title:
               type: string
+            notes:
+              type: string
+
+    ChecklistCategory:
+      type: string
+      enum: [DOCUMENTS, CLOTHES, ELECTRONICS, TOILETRIES, OTHER]
+
+    ChecklistItem:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - type: object
+          required: [title, category, checked, quantity]
+          description: |
+            Um item da checklist da viagem: algo para levar ou fazer antes de embarcar. Manual, sem
+            sugestão automática — cada item é digitado por uma pessoa.
+          properties:
+            title:
+              type: string
+            category:
+              $ref: '#/components/schemas/ChecklistCategory'
+            checked:
+              type: boolean
+            quantity:
+              type: integer
+              minimum: 1
+            notes:
+              type: string
+
+    ChecklistItemCreate:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opcional. Gerado pelo cliente (UUID v7) para criação idempotente.
+        title:
+          type: string
+        category:
+          $ref: '#/components/schemas/ChecklistCategory'
+          description: Padrão OTHER quando omitido.
+        quantity:
+          type: integer
+          minimum: 1
+          description: Padrão 1 quando omitido.
+        notes:
+          type: string
+
+    ChecklistItemPatch:
+      allOf:
+        - $ref: '#/components/schemas/BaseVersion'
+        - type: object
+          additionalProperties: false
+          properties:
+            title:
+              type: string
+            category:
+              $ref: '#/components/schemas/ChecklistCategory'
+            checked:
+              type: boolean
+            quantity:
+              type: integer
+              minimum: 1
             notes:
               type: string
 
@@ -3857,7 +4051,7 @@ components:
 
     SyncEntity:
       type: string
-      enum: [trip, itinerary_day, itinerary_item, place, restaurant, flight, hotel, document]
+      enum: [trip, itinerary_day, itinerary_item, place, restaurant, flight, hotel, document, checklist_item]
 
     SyncChange:
       type: object

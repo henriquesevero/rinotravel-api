@@ -850,3 +850,40 @@ func TestPaymentMarksSayWhetherAPriceIsPaid(t *testing.T) {
 	}
 	w.post(t, "/payments", w.ana, `{"link":{"type":"ticket","id":"`+ticket+`"},"paid":false}`)
 }
+
+func TestChecklistIsPlainAndManual(t *testing.T) {
+	w := newWorld(t)
+
+	item := w.post(t, "/checklist-items", w.ana, `{"title":"Passaporte"}`)
+	if item["title"] != "Passaporte" || item["category"] != "OTHER" || item["checked"] != false || item["quantity"] != float64(1) {
+		t.Fatalf("a plain item defaults its category, quantity and checked state: %v", item)
+	}
+
+	socks := w.post(t, "/checklist-items", w.ana, `{"title":"Meias","category":"CLOTHES","quantity":5}`)
+	if socks["category"] != "CLOTHES" || socks["quantity"] != float64(5) {
+		t.Errorf("socks = %v", socks)
+	}
+
+	checked := apitest.Decode(t, w.Do("PATCH", w.base+"/checklist-items/"+item["id"].(string), w.ana.Token, `{"baseVersion":1,"checked":true}`))
+	if checked["checked"] != true || checked["title"] != "Passaporte" {
+		t.Errorf("checking it off must not touch its other fields: %v", checked)
+	}
+
+	items := w.get(t, "/checklist-items", w.bia)["items"].([]any)
+	if len(items) != 2 {
+		t.Errorf("a viewer sees %d items, want 2", len(items))
+	}
+
+	w.problem(t, "POST", "/checklist-items", w.bia, `{"title":"x"}`, 403, "forbidden")
+	body := w.problem(t, "POST", "/checklist-items", w.ana, `{"title":"","category":"SPACESHIP","quantity":-1}`, 422, "validation_failed")
+	if f := apitest.Fields(body); !f["title"] || !f["category"] || !f["quantity"] {
+		t.Errorf("fields = %v", f)
+	}
+
+	if rec := w.Do("DELETE", w.base+"/checklist-items/"+socks["id"].(string), w.ana.Token, ""); rec.Code != 204 {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body)
+	}
+	if items := w.get(t, "/checklist-items", w.ana)["items"].([]any); len(items) != 1 {
+		t.Errorf("after deleting one item, %d remain, want 1", len(items))
+	}
+}
